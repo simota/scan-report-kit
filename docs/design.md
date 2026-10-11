@@ -96,7 +96,8 @@ they are told apart by the label text and by the entry's left rule weight
   columns, cards on narrow screens, long paths may break anywhere). Every
   other table keeps automatic layout and its header row, wraps between words,
   and sits in `.tablewrap` so a table wider than the column scrolls inside it
-  instead of splitting words.
+  instead of splitting words. Cells holding short identifiers (B-01, R-01)
+  carry `.nowrap` so an ID never breaks at its hyphen.
 - Dashboard cards (`.cards`): one row of equal columns at any count; two
   columns at 850px and below.
 
