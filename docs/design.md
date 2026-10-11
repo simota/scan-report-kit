@@ -90,7 +90,7 @@ they are told apart by the label text and by the entry's left rule weight
   source excerpts "Listing n" by counters.
 - Title page: report type in small caps, title, project, a metadata table, then
   the executive summary set as an *Abstract* block between two rules.
-- Dashboard: one centred column (max 1180px), the same serif headings and
+- Dashboard: one centred column (max 1320px, room for the 7-column register), the same serif headings and
   booktabs register; filters and controls stay sans and compact.
 
 **Surface.** Booktabs tables: 1.2pt top and bottom rules, 0.6pt rule under the
