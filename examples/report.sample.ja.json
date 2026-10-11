@@ -1,0 +1,158 @@
+{
+  "format": "scan-report/1",
+  "meta": {
+    "project": "acme-shop",
+    "date": "2026-10-11",
+    "assessor": "example-scan",
+    "scope": "記録したコミット時点の src/",
+    "method": "リクエストハンドラの静的レビュー",
+    "commit": "0a1b2c3"
+  },
+  "report": {
+    "kind": "サンプル診断",
+    "title": "サンプル診断報告書",
+    "dashboard_title": "サンプル診断結果",
+    "running_footer": "サンプル診断"
+  },
+  "summary": "リリース前に対応が必要な未対応指摘が2件あり、うち1件は High です。注文エクスポートが他の顧客の注文を返します。",
+  "findings": [
+    {
+      "id": "F-001",
+      "title": "注文エクスポートが他の顧客の注文を返す",
+      "severity": "High",
+      "status": "Open",
+      "confidence": "Confirmed",
+      "verdict": "Valid",
+      "category": "Access control",
+      "location": "src/orders/export.py:42-44",
+      "action": {
+        "label": "今すぐ修正",
+        "text": "エクスポートのクエリをセッションの顧客 ID で絞り込みます。"
+      },
+      "fields": [
+        {
+          "label": "影響",
+          "text": "ログインした任意の顧客が住所を含む全注文をダウンロードできます。"
+        },
+        {
+          "label": "修正",
+          "text": "クエリに customer_id = session.customer_id を追加し、回帰テストを加えます。"
+        }
+      ],
+      "snippet": {
+        "start": 41,
+        "hit": [
+          42,
+          44
+        ],
+        "lines": [
+          "def export(request):",
+          "    rows = db.query(\"SELECT * FROM orders\")",
+          "    return csv_response(rows)",
+          "    # <script>alert(1)</script> stays text",
+          "    pass"
+        ]
+      },
+      "references": [
+        {
+          "type": "CWE",
+          "title": "CWE-639",
+          "url": "https://cwe.mitre.org/data/definitions/639.html"
+        }
+      ]
+    },
+    {
+      "id": "F-002",
+      "title": "検索ページが Cache-Control ヘッダーを返さない",
+      "severity": "Medium",
+      "status": "Open",
+      "confidence": "Suspected",
+      "verdict": "Likely",
+      "category": "Configuration",
+      "location": "src/search/views.py:10",
+      "action": {
+        "label": "先に検証",
+        "text": "サービスの前段に共有キャッシュがあるか確認します。"
+      },
+      "fields": [
+        {
+          "label": "影響",
+          "text": "共有キャッシュがあると、ある利用者の結果が別の利用者に返る可能性があります。"
+        }
+      ]
+    },
+    {
+      "id": "F-003",
+      "title": "ステージングでデバッグツールバーが有効",
+      "severity": "Low",
+      "status": "Fixed",
+      "category": "Configuration",
+      "location": "settings/staging.py:3",
+      "fields": [
+        {
+          "label": "修正",
+          "text": "4d5e6f7 で削除しました。"
+        }
+      ]
+    },
+    {
+      "id": "F-004",
+      "title": "フィクスチャに固定のテスト鍵",
+      "severity": "Info",
+      "status": "Accepted",
+      "category": "Secrets",
+      "location": "tests/fixtures/keys.py:1",
+      "fields": [
+        {
+          "label": "判断",
+          "text": "権限のないテスト専用鍵のため受容しました。"
+        }
+      ]
+    },
+    {
+      "id": "F-005",
+      "title": "文字列整形で組み立てた SQL",
+      "severity": "Medium",
+      "status": "Open",
+      "verdict": "FalsePositive",
+      "category": "Injection",
+      "location": "src/report/sql.py:8",
+      "excluded": true,
+      "fields": [
+        {
+          "label": "除外理由",
+          "text": "整形している値は定数のテーブル名です。"
+        }
+      ]
+    }
+  ],
+  "perspectives": [
+    {
+      "name": "アクセス制御",
+      "result": "指摘1件",
+      "note": "src/ 配下の全ハンドラを確認しました。"
+    },
+    {
+      "name": "設定",
+      "result": "指摘2件"
+    },
+    {
+      "name": "インジェクション",
+      "result": "有効な指摘なし",
+      "note": "候補1件を除外しました。"
+    }
+  ],
+  "limitations": [
+    "実行時の挙動は確認していません。",
+    "サードパーティ依存関係は範囲外です。"
+  ],
+  "decisions": [
+    "共有キャッシュがない場合に F-002 の修正が必要か判断してください。"
+  ],
+  "next_steps": [
+    "F-001 を修正し、再度レビューします。"
+  ],
+  "checked_ok": [
+    "パスワードのハッシュには低速な KDF を使用しています。"
+  ]
+}

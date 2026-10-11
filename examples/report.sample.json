@@ -1,0 +1,158 @@
+{
+  "format": "scan-report/1",
+  "meta": {
+    "project": "acme-shop",
+    "date": "2026-10-11",
+    "assessor": "example-scan",
+    "scope": "src/ at the recorded commit",
+    "method": "Static review of request handlers",
+    "commit": "0a1b2c3"
+  },
+  "report": {
+    "kind": "Example review",
+    "title": "Example Review Report",
+    "dashboard_title": "Example Review Results",
+    "running_footer": "EXAMPLE REVIEW"
+  },
+  "summary": "Two open findings need attention before release; one is High. The order export endpoint returns other customers' orders.",
+  "findings": [
+    {
+      "id": "F-001",
+      "title": "Order export returns other customers' orders",
+      "severity": "High",
+      "status": "Open",
+      "confidence": "Confirmed",
+      "verdict": "Valid",
+      "category": "Access control",
+      "location": "src/orders/export.py:42-44",
+      "action": {
+        "label": "Fix now",
+        "text": "Filter the export query by the session's customer id."
+      },
+      "fields": [
+        {
+          "label": "Impact",
+          "text": "Any signed-in customer can download every order, including addresses."
+        },
+        {
+          "label": "Fix",
+          "text": "Add customer_id = session.customer_id to the query and a regression test."
+        }
+      ],
+      "snippet": {
+        "start": 41,
+        "hit": [
+          42,
+          44
+        ],
+        "lines": [
+          "def export(request):",
+          "    rows = db.query(\"SELECT * FROM orders\")",
+          "    return csv_response(rows)",
+          "    # <script>alert(1)</script> stays text",
+          "    pass"
+        ]
+      },
+      "references": [
+        {
+          "type": "CWE",
+          "title": "CWE-639",
+          "url": "https://cwe.mitre.org/data/definitions/639.html"
+        }
+      ]
+    },
+    {
+      "id": "F-002",
+      "title": "Search page sends no Cache-Control header",
+      "severity": "Medium",
+      "status": "Open",
+      "confidence": "Suspected",
+      "verdict": "Likely",
+      "category": "Configuration",
+      "location": "src/search/views.py:10",
+      "action": {
+        "label": "Verify first",
+        "text": "Confirm whether a shared cache sits in front of the service."
+      },
+      "fields": [
+        {
+          "label": "Impact",
+          "text": "A shared cache may serve one user's results to another."
+        }
+      ]
+    },
+    {
+      "id": "F-003",
+      "title": "Debug toolbar enabled in staging",
+      "severity": "Low",
+      "status": "Fixed",
+      "category": "Configuration",
+      "location": "settings/staging.py:3",
+      "fields": [
+        {
+          "label": "Fix",
+          "text": "Removed in 4d5e6f7."
+        }
+      ]
+    },
+    {
+      "id": "F-004",
+      "title": "Hard-coded test key in fixtures",
+      "severity": "Info",
+      "status": "Accepted",
+      "category": "Secrets",
+      "location": "tests/fixtures/keys.py:1",
+      "fields": [
+        {
+          "label": "Decision",
+          "text": "Test-only key with no access; accepted."
+        }
+      ]
+    },
+    {
+      "id": "F-005",
+      "title": "SQL built with string formatting",
+      "severity": "Medium",
+      "status": "Open",
+      "verdict": "FalsePositive",
+      "category": "Injection",
+      "location": "src/report/sql.py:8",
+      "excluded": true,
+      "fields": [
+        {
+          "label": "Reason excluded",
+          "text": "The formatted value is a constant table name."
+        }
+      ]
+    }
+  ],
+  "perspectives": [
+    {
+      "name": "Access control",
+      "result": "1 finding",
+      "note": "All handlers under src/ reviewed."
+    },
+    {
+      "name": "Configuration",
+      "result": "2 findings"
+    },
+    {
+      "name": "Injection",
+      "result": "No valid findings",
+      "note": "1 candidate excluded."
+    }
+  ],
+  "limitations": [
+    "Runtime behaviour was not exercised.",
+    "Third-party dependencies were out of scope."
+  ],
+  "decisions": [
+    "Decide whether F-002 needs a fix if no shared cache exists."
+  ],
+  "next_steps": [
+    "Fix F-001 and re-run the review."
+  ],
+  "checked_ok": [
+    "Password hashing uses a slow KDF."
+  ]
+}
