@@ -92,6 +92,13 @@ they are told apart by the label text and by the entry's left rule weight
   the executive summary set as an *Abstract* block between two rules.
 - Dashboard: one centred column (max 1320px, room for the 7-column register), the same serif headings and
   booktabs register; filters and controls stay sans and compact.
+- Dashboard tables: the findings register is `table.register` (fixed 7
+  columns, cards on narrow screens, long paths may break anywhere). Every
+  other table keeps automatic layout and its header row, wraps between words,
+  and sits in `.tablewrap` so a table wider than the column scrolls inside it
+  instead of splitting words.
+- Dashboard cards (`.cards`): one row of equal columns at any count; two
+  columns at 850px and below.
 
 **Surface.** Booktabs tables: 1.2pt top and bottom rules, 0.6pt rule under the
 head, no vertical rules, no zebra fills. No shadows, no rounded corners beyond

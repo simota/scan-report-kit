@@ -75,9 +75,18 @@ class RenderTests(unittest.TestCase):
     def test_register_layout_does_not_leak_to_other_tables(self):
         css = style.dashboard_css()
         self.assertIn('<table class="register">', report.render_dashboard(report.validate(copy.deepcopy(SAMPLE)), "en"))
-        self.assertNotRegex(css, r"(?:^|[}\n])th:nth-child")
-        self.assertNotIn("table-layout:fixed}", css.replace(".register{table-layout:fixed}", ""))
-        self.assertNotIn("table,tbody,tr,td{display:block}", css)
+        self.assertNotRegex(css, r"(?:^|[}\n,])(?:\.register\s)?th:nth-child")
+        self.assertNotIn("table-layout:fixed}", css.replace("table.register{table-layout:fixed}", ""))
+        self.assertNotRegex(css, r"(?:^|[{}\n,])(?:table|\.register),")
+        self.assertIn("table.register thead{display:none}", css)
+        # The narrow register rows stay a grid: as specific as the block rule above it.
+        self.assertIn("table.register tr.row{padding:14px;border-bottom:1px solid var(--line);display:grid;", css)
+        # Cells wrap between words; only the register breaks anywhere.
+        self.assertIn("vertical-align:top;overflow-wrap:break-word}", css)
+        self.assertIn("table.register td{overflow-wrap:anywhere}", css)
+        # Any number of cards shares one row, two columns on narrow screens.
+        self.assertIn(".cards{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)", css)
+        self.assertIn(".cards{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}", css)
         self.assertIn("@media print{html:root,html:root[data-theme]{color-scheme:light;", css)
 
     def test_running_footer_is_a_css_string(self):
