@@ -128,6 +128,22 @@ class PdfTests(unittest.TestCase):
             self.assertEqual(pdf.to_pdf(self.html, out), "chrome")
         self.assertEqual(out.read_bytes(), b"%PDF")
 
+    def test_failed_chrome_pdf_is_discarded_before_weasyprint(self):
+        chrome = self.fake("chrome", 'for a; do case "$a" in --print-to-pdf=*) printf partial > "${a#*=}";; esac; done; exit 1')
+        self.fake("weasyprint", 'printf "%%PDF ok" > "$2"')
+        out, failures = self.root / "a.pdf", []
+        with patch.dict(os.environ, {"CHROME": str(chrome), "PATH": str(chrome.parent)}):
+            self.assertEqual(pdf.to_pdf(self.html, out, failures), "weasyprint")
+        self.assertEqual(out.read_bytes(), b"%PDF ok")
+        self.assertIn("exited with status 1; its PDF was discarded", failures[0][1])
+
+    def test_failed_weasyprint_leaves_no_partial_output(self):
+        weasy = self.fake("weasyprint", 'printf partial > "$2"; exit 1')
+        out = self.root / "a.pdf"
+        with patch.dict(os.environ, {"CHROME": str(self.root / "missing"), "PATH": str(weasy.parent)}):
+            self.assertIsNone(pdf.to_pdf(self.html, out))
+        self.assertFalse(out.exists())
+
     def test_timeout_env_and_scaling(self):
         chrome = self.fake("chrome", "exec " + (shutil.which("sleep") or "/bin/sleep") + " 30")
         failures, started = [], time.monotonic()
