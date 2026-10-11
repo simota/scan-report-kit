@@ -72,6 +72,14 @@ class RenderTests(unittest.TestCase):
         self.assertIn("function fillDetails(dt, f)", page)
         self.assertEqual(page.count("__CSS__"), 0)
 
+    def test_register_layout_does_not_leak_to_other_tables(self):
+        css = style.dashboard_css()
+        self.assertIn('<table class="register">', report.render_dashboard(report.validate(copy.deepcopy(SAMPLE)), "en"))
+        self.assertNotRegex(css, r"(?:^|[}\n])th:nth-child")
+        self.assertNotIn("table-layout:fixed}", css.replace(".register{table-layout:fixed}", ""))
+        self.assertNotIn("table,tbody,tr,td{display:block}", css)
+        self.assertIn("@media print{html:root,html:root[data-theme]{color-scheme:light;", css)
+
     def test_running_footer_is_a_css_string(self):
         css = style.document_css('A "quoted" \\ footer')
         self.assertIn('content:"A \\"quoted\\" \\\\ footer"', css)
