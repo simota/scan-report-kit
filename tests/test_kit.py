@@ -84,6 +84,7 @@ class RenderTests(unittest.TestCase):
         # Cells wrap between words; only the register breaks anywhere.
         self.assertIn("vertical-align:top;overflow-wrap:break-word}", css)
         self.assertIn("table.register td{overflow-wrap:anywhere}", css)
+        self.assertIn("th.nowrap,td.nowrap,.nowrap{white-space:nowrap}", css)
         # Any number of cards shares one row, two columns on narrow screens.
         self.assertIn(".cards{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)", css)
         self.assertIn(".cards{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}", css)
