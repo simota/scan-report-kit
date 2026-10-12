@@ -116,6 +116,8 @@ class FormatError(Exception):
 def _string(value, where):
     if not isinstance(value, str):
         raise FormatError(f"{where}: expected a string")
+    if "\x00" in value:
+        raise FormatError(f"{where}: expected Unicode text without NUL characters")
     if re.search(r"[\ud800-\udfff]", value):
         raise FormatError(f"{where}: expected Unicode text without surrogate code points")
     return value
@@ -398,16 +400,18 @@ def render_document(data, lang):
                 if coverage_rows else f"<p class='small'>{esc(L['coverage_missing'])}</p>")
 
     index_rows = "".join(
-        f"<tr><td data-label='{esc(L['title_col'])}'><a class='index-title' href='#{anchors[id(f)]}'>{esc(f['title'])}</a>"
+        f"<tr role='row'><td role='cell' data-label='{esc(L['title_col'])}'><a class='index-title' href='#{anchors[id(f)]}'>{esc(f['title'])}</a>"
         f"<span class='index-id'>{esc(f['id'])}</span></td>"
-        f"<td data-label='{esc(L['severity'])}'><span class='badge {f['severity']}'>{f['severity']}</span></td>"
-        f"<td data-label='{esc(L['status'])}'>{esc(f['status'])}</td>"
-        f"<td data-label='{esc(L['location'])}'><code>{value(f.get('location'))}</code></td></tr>" for f in fs)
-    index = (f"<table class='index'><caption>{esc(L['register_caption'])}</caption>"
+        f"<td role='cell' data-label='{esc(L['severity'])}'><span class='badge {f['severity']}'>{f['severity']}</span></td>"
+        f"<td role='cell' data-label='{esc(L['status'])}'>{esc(f['status'])}</td>"
+        f"<td role='cell' data-label='{esc(L['location'])}'><code>{value(f.get('location'))}</code></td></tr>" for f in fs)
+    index = (f"<table class='index' role='table'><caption>{esc(L['register_caption'])}</caption>"
              "<colgroup><col class='finding-col'><col class='severity-col'><col class='status-col'><col class='evidence-col'></colgroup>"
-             f"<thead><tr><th scope='col'>{esc(L['title_col'])}</th><th scope='col'>{esc(L['severity'])}</th>"
-             f"<th scope='col'>{esc(L['status'])}</th><th scope='col'>{esc(L['location'])}</th></tr></thead>"
-             f"<tbody>{index_rows}</tbody></table>" if fs else f"<p class='small'>{esc(L['no_findings'])}</p>")
+             f"<thead role='rowgroup'><tr role='row'><th scope='col' role='columnheader'>{esc(L['title_col'])}</th>"
+             f"<th scope='col' role='columnheader'>{esc(L['severity'])}</th>"
+             f"<th scope='col' role='columnheader'>{esc(L['status'])}</th>"
+             f"<th scope='col' role='columnheader'>{esc(L['location'])}</th></tr></thead>"
+             f"<tbody role='rowgroup'>{index_rows}</tbody></table>" if fs else f"<p class='small'>{esc(L['no_findings'])}</p>")
 
     def card(f):
         state = "".join(f"<tr><th scope='row'>{esc(L[k])}</th><td>"

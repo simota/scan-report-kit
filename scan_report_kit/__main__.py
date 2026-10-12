@@ -17,6 +17,20 @@ from . import output, pdf, report
 OUTPUTS = ("dashboard.html", "report.html", "report.pdf")
 
 
+def _unique_object(pairs):
+    """Reject ambiguous objects before JSON decoding can discard report data."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise report.FormatError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _reject_constant(value):
+    raise report.FormatError(f"invalid JSON constant: {value}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="scan_report_kit", description=__doc__.splitlines()[0])
     p.add_argument("report")
@@ -25,9 +39,11 @@ def main(argv=None):
     p.add_argument("--no-pdf", action="store_true", help="skip PDF generation")
     a = p.parse_args(argv)
     try:
-        data = report.validate(json.loads(Path(a.report).read_text(encoding="utf-8")))
+        data = report.validate(json.loads(Path(a.report).read_text(encoding="utf-8"),
+                                          object_pairs_hook=_unique_object,
+                                          parse_constant=_reject_constant))
         dashboard, document = report.render_dashboard(data, a.lang), report.render_document(data, a.lang)
-    except (report.FormatError, ValueError, OSError) as e:
+    except (report.FormatError, ValueError, OSError, RecursionError) as e:
         print(f"scan_report_kit: {e}", file=sys.stderr)
         return 2
     out = Path(a.out)

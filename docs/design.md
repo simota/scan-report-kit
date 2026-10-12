@@ -63,6 +63,9 @@ are nouns ("Verification basis"), not calls to action. Unchanged copy.
 **Colour.** Ink on paper; colour is reserved for severity and links. The
 printable document has no fills behind text except listing highlights.
 Dashboard details use a subtle background tint that follows the selected theme.
+Highlighted source lines use a separate background from that detail tint and
+stronger line-number text, so the marked evidence remains identifiable in both
+dashboard themes and in print.
 
 | Role | Light | Ratio vs `#fff` | Dark | Ratio vs `#17171a` |
 |---|---|---|---|---|
@@ -100,11 +103,13 @@ they are told apart by the label text and by the entry's left rule weight
   and sits in `.tablewrap` so a table wider than the column scrolls inside it
   instead of splitting words. Cells holding short identifiers (B-01, R-01)
   carry `.nowrap` so an ID never breaks at its hyphen.
-- The mobile register keeps its column headers available to assistive
+- The mobile register in both the dashboard and printable HTML keeps its column headers available to assistive
   technology through visual clipping, and explicit table roles preserve the
-  relationships when CSS presents rows as cards. Finding links expand the
-  destination and move keyboard focus to its detail toggle. Detail titles and
-  actions wrap onto separate lines when space is limited.
+  relationships when CSS presents rows as cards. The printable index caption
+  spans the card width, so its text wraps naturally on narrow screens.
+  Dashboard finding links expand the destination and move keyboard focus to its
+  detail toggle. Detail titles and actions wrap onto separate lines when space
+  is limited.
 - Dashboard cards (`.cards`): one row of equal columns at any count; two
   columns at 850px and below.
 

@@ -4,6 +4,7 @@ import contextlib
 import io
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,35 @@ class VendorRegressionTests(unittest.TestCase):
     def assert_old_copy(self, target):
         self.assertEqual((target / "old.py").read_text(encoding="utf-8"), "keep the working copy\n")
         self.assertEqual(sorted(p.name for p in self.dest.iterdir()), [vendor.NAME])
+
+    def same_content_replacement(self, entry):
+        work = Path(tempfile.mkdtemp(prefix="replacement-", dir=self.root))
+        replacement, previous = work / "replacement", work / "previous"
+        if entry.is_dir():
+            shutil.copytree(entry, replacement)
+        else:
+            shutil.copy2(entry, replacement)
+        info = replacement.stat()
+
+        def replace():
+            entry.rename(previous)
+            os.replace(replacement, entry)
+
+        return replace, (info.st_dev, info.st_ino)
+
+    @contextlib.contextmanager
+    def opened_inodes(self):
+        opened = set()
+        original_open = os.open
+
+        def track_open(*args, **kwargs):
+            fd = original_open(*args, **kwargs)
+            info = os.fstat(fd)
+            opened.add((info.st_dev, info.st_ino))
+            return fd
+
+        with patch.object(vendor.os, "open", side_effect=track_open):
+            yield opened
 
     def test_refuses_to_replace_source_itself(self):
         with self.assertRaisesRegex(ValueError, "overlap"):
@@ -320,12 +350,275 @@ class VendorRegressionTests(unittest.TestCase):
         manifest.symlink_to(outside)
         with patch.object(vendor.os, "open", wraps=os.open) as opened:
             self.assertTrue(vendor.check(target))
-            opened.assert_not_called()
+            self.assertNotIn(vendor.MANIFEST, [Path(call.args[0]).name for call in opened.call_args_list])
         alias = self.root / "linked-copy"
         alias.symlink_to(target, target_is_directory=True)
         with patch.object(vendor.os, "open", wraps=os.open) as opened:
             self.assertTrue(vendor.check(alias))
             opened.assert_not_called()
+
+    def test_check_reports_root_replaced_after_scanning(self):
+        original_scan = vendor._scan
+        for replacement in ("missing", "symlink", "regular-file"):
+            with self.subTest(replacement=replacement):
+                target = vendor.vendor(self.dest / replacement)
+                moved = target.with_name("previous-package")
+
+                def replace_after_scan(copy, **kwargs):
+                    result = original_scan(copy, **kwargs)
+                    target.rename(moved)
+                    if replacement == "symlink":
+                        target.symlink_to(moved, target_is_directory=True)
+                    elif replacement == "regular-file":
+                        target.write_text("not a package\n", encoding="utf-8")
+                    return result
+
+                with patch.object(vendor, "_scan", side_effect=replace_after_scan):
+                    with patch.object(vendor, "_regular_file", wraps=vendor._regular_file) as opened:
+                        problems = vendor.check(target)
+                self.assertTrue(problems, "a changed package root must not pass its integrity check")
+                self.assertTrue(any(str(target) in problem for problem in problems))
+                opened.assert_not_called()
+
+    def test_root_swap_before_manifest_read_never_opens_the_replacement_tree(self):
+        target = vendor.vendor(self.dest)
+        outside = self.root / "outside-package"
+        shutil.copytree(target, outside)
+        moved = target.with_name("original-package")
+        outside_files = {(path.stat().st_dev, path.stat().st_ino)
+                         for path in outside.rglob("*") if path.is_file()}
+        opened_files = set()
+        original_open, original_file = os.open, vendor._regular_file
+        swapped = False
+
+        def track_open(*args, **kwargs):
+            fd = original_open(*args, **kwargs)
+            info = os.fstat(fd)
+            opened_files.add((info.st_dev, info.st_ino))
+            return fd
+
+        @contextlib.contextmanager
+        def swap_before_manifest(path, *args, **kwargs):
+            nonlocal swapped
+            if Path(path).name == vendor.MANIFEST and not swapped:
+                target.rename(moved)
+                target.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            with original_file(path, *args, **kwargs) as handle:
+                yield handle
+
+        with patch.object(vendor, "_regular_file", side_effect=swap_before_manifest):
+            with patch.object(vendor.os, "open", side_effect=track_open):
+                problems = vendor.check(target)
+        self.assertTrue(swapped)
+        self.assertTrue(problems, "a root swapped for a symlink must not pass verification")
+        self.assertFalse(opened_files & outside_files, "verification must not read through the substituted root")
+
+    def test_nested_swap_before_hashing_never_opens_the_replacement_tree(self):
+        target = vendor.vendor(self.dest)
+        directory = target / "assets"
+        outside = self.root / "outside-assets"
+        shutil.copytree(directory, outside)
+        moved = target / "original-assets"
+        outside_file = (outside / "page.css").stat()
+        opened_files = set()
+        original_open, original_file = os.open, vendor._regular_file
+        swapped = False
+
+        def track_open(*args, **kwargs):
+            fd = original_open(*args, **kwargs)
+            info = os.fstat(fd)
+            opened_files.add((info.st_dev, info.st_ino))
+            return fd
+
+        @contextlib.contextmanager
+        def swap_before_hash(path, *args, **kwargs):
+            nonlocal swapped
+            if Path(path).name == "page.css" and not swapped:
+                directory.rename(moved)
+                directory.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            with original_file(path, *args, **kwargs) as handle:
+                yield handle
+
+        with patch.object(vendor, "_regular_file", side_effect=swap_before_hash):
+            with patch.object(vendor.os, "open", side_effect=track_open):
+                problems = vendor.check(target)
+        self.assertTrue(swapped)
+        self.assertTrue(problems, "a nested directory swapped for a symlink must not pass verification")
+        self.assertNotIn((outside_file.st_dev, outside_file.st_ino), opened_files)
+
+    def test_nested_swap_during_scan_never_scans_the_replacement_tree(self):
+        target = vendor.vendor(self.dest)
+        directory = target / "assets"
+        original = directory.stat()
+        outside = self.root / "outside-assets"
+        shutil.copytree(directory, outside)
+        external = outside.stat()
+        moved = target / "original-assets"
+        original_scandir = os.scandir
+        scanned = set()
+        swapped = False
+
+        def swap_before_scan(path):
+            nonlocal swapped
+            before = os.fstat(path) if isinstance(path, int) else Path(path).stat()
+            if (before.st_dev, before.st_ino) == (original.st_dev, original.st_ino) and not swapped:
+                directory.rename(moved)
+                directory.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            after = os.fstat(path) if isinstance(path, int) else Path(path).stat()
+            scanned.add((after.st_dev, after.st_ino))
+            return original_scandir(path)
+
+        with patch.object(vendor.os, "scandir", side_effect=swap_before_scan):
+            problems = vendor.check(target)
+        self.assertTrue(swapped)
+        self.assertTrue(problems, "a directory substituted while scanning must not pass verification")
+        self.assertNotIn((external.st_dev, external.st_ino), scanned)
+
+    def test_discovered_directory_replacement_is_rejected_before_opening_it(self):
+        (self.source / "assets" / "nested").mkdir()
+        (self.source / "assets" / "nested" / "leaf.css").write_text("a{}\n", encoding="utf-8")
+        original_directory = vendor._directory_fd
+        for relative in ("assets", "assets/nested"):
+            with self.subTest(relative=relative):
+                target = vendor.vendor(self.dest / relative)
+                victim = target / relative
+                replace, external_inode = self.same_content_replacement(victim)
+                swapped = False
+
+                @contextlib.contextmanager
+                def swap_before_open(path, *args, **kwargs):
+                    nonlocal swapped
+                    if Path(path).name == victim.name and not swapped:
+                        replace()
+                        swapped = True
+                    with original_directory(path, *args, **kwargs) as fd:
+                        yield fd
+
+                with patch.object(vendor, "_directory_fd", side_effect=swap_before_open):
+                    with self.opened_inodes() as opened:
+                        problems = vendor.check(target)
+                self.assertTrue(swapped)
+                self.assertTrue(problems, "enumerated directory identity must survive pending traversal")
+                self.assertNotIn(external_inode, opened, "a replacement must be rejected before it is opened")
+
+    def test_recorded_entry_replacement_after_scan_is_rejected_before_opening_it(self):
+        (self.source / "empty").mkdir()
+        original_scan = vendor._scan
+        for relative in ("assets", "empty", "__init__.py", vendor.MANIFEST):
+            with self.subTest(relative=relative):
+                target = vendor.vendor(self.dest / relative)
+                replace, external_inode = self.same_content_replacement(target / relative)
+
+                def swap_after_scan(*args, **kwargs):
+                    result = original_scan(*args, **kwargs)
+                    replace()
+                    return result
+
+                with patch.object(vendor, "_scan", side_effect=swap_after_scan):
+                    with self.opened_inodes() as opened:
+                        problems = vendor.check(target)
+                self.assertTrue(problems, "same contents must not hide a recorded entry's replacement")
+                self.assertNotIn(external_inode, opened, "a replacement must be rejected before it is opened")
+
+    def test_recorded_entries_are_rechecked_after_the_last_hash(self):
+        (self.source / "empty").mkdir()
+        original_digest = vendor.digest
+        for relative in ("assets", "empty", "__init__.py", vendor.MANIFEST):
+            with self.subTest(relative=relative):
+                target = vendor.vendor(self.dest / relative)
+                replace, external_inode = self.same_content_replacement(target / relative)
+                swapped = False
+
+                def swap_after_last_hash(path, *args, **kwargs):
+                    nonlocal swapped
+                    result = original_digest(path, *args, **kwargs)
+                    if Path(path).as_posix() == "assets/page.css":
+                        replace()
+                        swapped = True
+                    return result
+
+                with patch.object(vendor, "digest", side_effect=swap_after_last_hash):
+                    with self.opened_inodes() as opened:
+                        problems = vendor.check(target)
+                self.assertTrue(swapped)
+                self.assertTrue(problems, "all recorded identities, including empty directories, need a final check")
+                self.assertNotIn(external_inode, opened)
+
+    def test_manifest_identity_is_rechecked_after_reading_it(self):
+        target = vendor.vendor(self.dest)
+        replace, _ = self.same_content_replacement(target / vendor.MANIFEST)
+        original_file = vendor._regular_file_at
+
+        @contextlib.contextmanager
+        def swap_after_manifest_read(root_fd, relative, **kwargs):
+            with original_file(root_fd, relative, **kwargs) as handle:
+                yield handle
+            if Path(relative).as_posix() == vendor.MANIFEST:
+                replace()
+
+        with patch.object(vendor, "_regular_file_at", side_effect=swap_after_manifest_read):
+            self.assertTrue(vendor.check(target), "the MANIFEST identity must survive its reader's closure")
+
+    def test_manifest_generation_preserves_recorded_identities(self):
+        (self.source / "empty").mkdir()
+        original_scan, original_digest = vendor._scan, vendor.digest
+        for timing, relative in (("scan", "__init__.py"), ("hash", "__init__.py"), ("hash", "empty")):
+            with self.subTest(timing=timing, relative=relative):
+                root = self.root / f"manifest-{timing}-{relative}"
+                shutil.copytree(self.source, root)
+                replace, external_inode = self.same_content_replacement(root / relative)
+
+                def swap_after_scan(*args, **kwargs):
+                    result = original_scan(*args, **kwargs)
+                    replace()
+                    return result
+
+                def swap_after_last_hash(path, *args, **kwargs):
+                    result = original_digest(path, *args, **kwargs)
+                    if Path(path).as_posix() == "assets/page.css":
+                        replace()
+                    return result
+
+                hook = "_scan" if timing == "scan" else "digest"
+                action = swap_after_scan if timing == "scan" else swap_after_last_hash
+                with patch.object(vendor, hook, side_effect=action):
+                    with self.opened_inodes() as opened:
+                        with self.assertRaisesRegex(ValueError, "changed during verification"):
+                            vendor.manifest_text(root)
+                self.assertNotIn(external_inode, opened)
+
+    def test_ignored_cache_updates_do_not_invalidate_recorded_identities(self):
+        target = vendor.vendor(self.dest)
+        cache = target / "assets" / "__pycache__"
+        cache.mkdir()
+        (cache / "old.pyc").write_bytes(b"old cache")
+        bytecode = target / "module.pyc"
+        bytecode.write_bytes(b"old bytecode")
+        replace_cache, _ = self.same_content_replacement(cache)
+        replace_bytecode, _ = self.same_content_replacement(bytecode)
+        original_scan = vendor._scan
+
+        def update_after_scan(*args, **kwargs):
+            result = original_scan(*args, **kwargs)
+            replace_cache()
+            (cache / "new.pyc").write_bytes(b"new cache")
+            replace_bytecode()
+            (target / "__pycache__").mkdir()
+            return result
+
+        with patch.object(vendor, "_scan", side_effect=update_after_scan):
+            self.assertEqual(vendor.check(target), [])
+
+    def test_unsupported_directory_descriptors_fail_before_replacing_an_existing_copy(self):
+        target = self.old_copy()
+        with patch.object(vendor, "_SAFE_DIR_FDS", False, create=True):
+            with self.assertRaisesRegex(ValueError, "directory-relative verification"):
+                vendor.vendor(self.dest)
+            self.assertTrue(any("directory-relative verification" in problem for problem in vendor.check(target)))
+        self.assert_old_copy(target)
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "requires FIFO support")
     def test_check_rejects_fifo_without_opening_it(self):

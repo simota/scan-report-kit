@@ -253,6 +253,35 @@ class FormatContractTests(unittest.TestCase):
                 "lines": ["one", "two"]}
         report.validate(document(finding(snippet=edge)))
 
+    def test_nul_characters_are_rejected_in_report_text(self):
+        # HTML parsing replaces U+0000 with U+FFFD; rejecting it preserves the
+        # evidence contract instead of silently changing the printable report.
+        text = "before\x00after"
+        mutations = (
+            (lambda data: data["meta"].update(project=text), r"meta\.project"),
+            (lambda data: data.update(summary=text), "summary"),
+            (lambda data: data.update(report={"running_footer": text}), "running_footer"),
+            (lambda data: data.update(labels={"summary": text}), r"labels\.summary"),
+            (lambda data: data.update(limitations=[text]), r"limitations\[0\]"),
+            (lambda data: data.update(perspectives=[{"name": "Coverage", "note": text}]), r"perspectives\[0\]\.note"),
+            (lambda data: data["findings"][0].update(id=text), r"\.id"),
+            (lambda data: data["findings"][0].update(title=text), r"\.title"),
+            (lambda data: data["findings"][0].update(action={"label": "Fix", "text": text}), r"action\.text"),
+            (lambda data: data["findings"][0].update(fields=[{"label": "Evidence", "text": text}]), r"fields\[0\]\.text"),
+            (lambda data: data["findings"][0].update(snippet={"start": 1, "hit": [1, 1], "lines": [text]}),
+             r"snippet\.lines\[0\]"),
+        )
+        for mutate, location in mutations:
+            with self.subTest(location=location):
+                self.assert_bad(mutate, location + ".*NUL")
+
+    def test_renderers_reject_nul_before_generating_html(self):
+        data = document(finding(fields=[{"label": "Evidence", "text": "before\x00after"}]))
+        for render in (report.render_document, report.render_dashboard):
+            with self.subTest(renderer=render.__name__):
+                with self.assertRaisesRegex(report.FormatError, r"fields\[0\]\.text.*NUL"):
+                    render(data, "en")
+
     def test_surrogates_are_rejected_at_every_declared_text_location(self):
         mutations = (
             (lambda data: data["meta"].update(project="\ud800"), r"meta\.project"),
@@ -277,6 +306,28 @@ class FormatContractTests(unittest.TestCase):
                 page = render(data, "ja")
                 self.assertIn("認可の確認 \U0001f50d", page)
                 self.assertEqual(page.encode("utf-8").decode("utf-8"), page)
+
+
+class DocumentAccessibilityTests(unittest.TestCase):
+    def test_mobile_register_preserves_explicit_table_relationships(self):
+        data = document(finding(), finding("F-2", "Low"), finding("F-X", excluded=True))
+        for lang in ("en", "ja"):
+            with self.subTest(lang=lang):
+                page = report.render_document(data, lang)
+                register = re.search(r"<table class='index'.*?</table>", page, re.S)
+                self.assertIsNotNone(register)
+                parsed = Tags()
+                parsed.feed(register.group())
+                roles = {"table": "table", "thead": "rowgroup", "tbody": "rowgroup",
+                         "tr": "row", "th": "columnheader", "td": "cell"}
+                for tag, attrs in parsed.tags:
+                    if tag in roles:
+                        self.assertEqual(attrs.get("role"), roles[tag], (tag, attrs))
+                headers = [attrs for tag, attrs in parsed.tags if tag == "th"]
+                self.assertEqual(len(headers), 4)
+                self.assertTrue(all(attrs.get("scope") == "col" for attrs in headers))
+                self.assertEqual(sum(tag == "tr" for tag, _ in parsed.tags), 3)
+                self.assertEqual(sum(tag == "td" for tag, _ in parsed.tags), 8)
 
 
 class ReportAccountingTests(unittest.TestCase):

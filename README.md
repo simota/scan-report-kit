@@ -41,6 +41,11 @@ for dates, reference URLs, snippets, and label overrides. Report strings are
 rendered as text, including the CSS running footer; unknown extension fields
 are ignored and are not embedded in the dashboard.
 
+The CLI rejects duplicate JSON object keys and nonstandard `NaN`/`Infinity`
+constants before changing any outputs. Both renderers reject NUL characters and
+surrogate code points so recorded text cannot silently change during HTML
+parsing or UTF-8 encoding. Existing reports remain intact after invalid input.
+
 The dashboard sorts IDs naturally (`F-2` before `F-10`) and searches source
 excerpts and references as well as finding text. Excluded records retain their
 original status while staying outside the summary counts.
@@ -69,7 +74,19 @@ old copy if installation fails. If restoration also fails, the diagnostic names
 the preserved recovery directory. `--check` rejects edited/missing/extra files,
 malformed manifests, symlinks and special files. It checks integrity against the
 copy's own manifest; it does not establish that the copy is the latest upstream
-version.
+version. Verification records each tracked file and directory's identity in
+the initial scan, then compares it on subsequent opens and at the end of the
+check. Held directory descriptors and component-by-component opens keep reads
+attached to the inspected tree without following symlinks. A mismatched
+identity is an integrity failure. These checks do not lock the tree against
+concurrent writers.
+
+The standalone vendoring script requires directory-descriptor support
+(`dir_fd`, `scandir(fd)`, `O_DIRECTORY` and `O_NOFOLLOW`), available on the
+supported Linux and macOS Python versions. On other platforms, including
+Windows, it stops with a clear error before replacing an existing copy.
+This requirement is specific to `scripts/vendor.py`; rendering with the
+standard-library package does not depend on these APIs.
 
 ## Output and PDF behaviour
 
@@ -96,7 +113,8 @@ number of seconds per engine. Diagnostics can be redacted through `to_pdf()`'s
 ## Make targets
 
 `make help` lists them: `test`, `check`, `demo` (`LANG_OUT=en`, `NO_PDF=1`),
-`vendor DEST=…`.
+`vendor DEST=…`. Checkout and output paths may contain spaces or single quotes;
+invocation through `make -f /path/to/Makefile` also locates the source checkout.
 
 ## Development checks
 
@@ -109,9 +127,10 @@ writable directory when the system temporary directory is unavailable.
 
 GitHub Actions runs the checks on Python 3.9, 3.12 and 3.14 on Linux, and 3.12
 on macOS, with Node.js available. A real Chrome check runs on Linux in CI and
-can also run locally on macOS. It exercises both languages
-at desktop and mobile widths, including filters, sorting, deep links, focus,
-escaping, theme changes, and horizontal overflow. Rendered HTML, the live DOM,
+can also run locally on macOS. It exercises both languages in the dashboard and
+printable HTML at desktop and mobile widths, including filters, sorting, deep
+links, focus, escaping, theme changes, source-line highlighting, accessible
+table headers, and horizontal overflow. Rendered HTML, the live DOM,
 full-page screenshots and a result summary are retained as CI artifacts:
 
 ```sh
