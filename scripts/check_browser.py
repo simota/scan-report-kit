@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
 """Exercise rendered dashboards in real headless Chrome and retain CI artifacts.
 
-Requires Chrome/Chromium (CHROME selects a binary). No npm packages or browser
-driver are needed. Missing Chrome, missing result markers and failed assertions
-all fail the check. Screenshots, rendered DOM, stderr and a summary go to --out.
+Requires Chrome/Chromium on Linux or macOS (CHROME selects a binary). No npm
+packages or browser driver are needed. Missing Chrome, missing result markers
+and failed assertions all fail the check. Full-page screenshots, rendered DOM,
+stderr and a summary go to --out.
 """
 
 import argparse
+import base64
 from html.parser import HTMLParser
 import json
 import math
 import os
 from pathlib import Path
+import select
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -40,7 +44,7 @@ window.addEventListener('unhandledrejection', function (e) {
 """
 
 SMOKE_JS = r"""
-(async function () {
+window.__scanBrowserSmoke = (async function () {
   'use strict';
   const C = __CONFIG__, checks = [], errors = [];
   const marker = document.getElementById('scan-report-browser-result');
@@ -151,6 +155,58 @@ class ResultParser(HTMLParser):
             self.parts.append(data)
 
 
+# Chrome's --remote-debugging-pipe reads FD 3 and writes FD 4. Set these in a
+# fresh Python child before exec, avoiding preexec_fn and parent FD mutation.
+# Chromium's devtools_pipe_handler.cc specifies NUL-delimited JSON messages.
+PIPE_BOOTSTRAP = "import os, sys; os.dup2(0, 3); os.dup2(1, 4); os.execv(sys.argv[1], sys.argv[1:])"
+
+
+class DevTools:
+    """A sequential CDP pipe client with one deadline for the whole case."""
+
+    def __init__(self, proc, timeout):
+        self.proc = proc
+        self.deadline = time.monotonic() + timeout
+        self.timeout = timeout
+        self.sequence = 0
+        self.buffer = b""
+        self.loaded = set()
+
+    def read(self):
+        while b"\0" not in self.buffer:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0 or not select.select([self.proc.stdout], [], [], remaining)[0]:
+                raise RuntimeError(f"Chrome timed out after {self.timeout:g} seconds")
+            chunk = os.read(self.proc.stdout.fileno(), 65536)
+            if not chunk:
+                raise RuntimeError("Chrome closed its DevTools pipe; see the case's stderr artifact")
+            self.buffer += chunk
+        raw, self.buffer = self.buffer.split(b"\0", 1)
+        message = json.loads(raw)
+        if message.get("method") == "Page.lifecycleEvent" and message["params"].get("name") == "load":
+            self.loaded.add((message.get("sessionId"), message["params"]["loaderId"]))
+        return message
+
+    def call(self, method, params=None, session=None):
+        self.sequence += 1
+        request = {"id": self.sequence, "method": method, "params": params or {}}
+        if session:
+            request["sessionId"] = session
+        self.proc.stdin.write(json.dumps(request).encode("utf-8") + b"\0")
+        self.proc.stdin.flush()
+        while True:
+            response = self.read()
+            if response.get("id") != request["id"]:
+                continue
+            if "error" in response:
+                raise RuntimeError(f"{method}: {response['error'].get('message', response['error'])}")
+            return response.get("result", {})
+
+    def wait_loaded(self, session, loader):
+        while (session, loader) not in self.loaded:
+            self.read()
+
+
 def make_page(lang, view):
     sample = ROOT / "examples" / ("report.sample.ja.json" if lang == "ja" else "report.sample.json")
     data = json.loads(sample.read_text(encoding="utf-8"))
@@ -189,42 +245,65 @@ def run_case(chrome, directory, lang, view, timeout):
         artifact.unlink(missing_ok=True)
     html = stem.with_suffix(".html")
     output.write_output(html, make_page(lang, view))
-    with tempfile.TemporaryDirectory(prefix="scan-report-browser-") as temp:
+    with tempfile.TemporaryDirectory(prefix="scan-report-browser-") as temp, tempfile.TemporaryFile(
+            "w+", encoding="utf-8", errors="replace") as err:
         stage = Path(temp)
-        screenshot = stage / "screenshot.png"
         width, height = VIEWPORTS[view]
         command = [chrome, "--headless=new", "--disable-gpu", "--no-first-run",
                    "--disable-background-networking", "--force-device-scale-factor=1",
-                   f"--window-size={width},{height}", "--virtual-time-budget=5000",
-                   f"--user-data-dir={stage / 'profile'}", "--dump-dom",
-                   f"--screenshot={screenshot}", html.resolve().as_uri()]
+                   f"--window-size={width},{height}", f"--user-data-dir={stage / 'profile'}",
+                   "--remote-debugging-pipe", "about:blank"]
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             command.insert(1, "--no-sandbox")
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, encoding="utf-8", errors="replace", start_new_session=os.name == "posix")
-        timed_out = False
-        try:
-            try:
-                dom, stderr = proc.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-        finally:
-            pdf._stop(proc)
-        if timed_out:
-            dom, stderr = proc.communicate()
-        output.write_output(stem.with_suffix(".dom.html"), dom)
-        output.write_output(stem.with_suffix(".stderr.txt"), stderr)
-        # Keep a captured image even when Chrome or the harness failed, so CI
-        # has visual evidence for missing markers and runtime errors as well.
+        proc = subprocess.Popen([sys.executable, "-c", PIPE_BOOTSTRAP, *command],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
+                                start_new_session=True)
+        dom = ""
+        image_bytes = b""
         destination = stem.with_suffix(".png")
-        if screenshot.is_file():
+        try:
+            cdp = DevTools(proc, timeout)
+            target = cdp.call("Target.createTarget", {"url": "about:blank"})["targetId"]
+            session = cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
+            cdp.call("Page.enable", session=session)
+            cdp.call("Page.setLifecycleEventsEnabled", {"enabled": True}, session)
+            # --window-size alone is clamped to a desktop minimum by Chrome.
+            # CDP sets the real layout viewport, including CSS media queries.
+            cdp.call("Emulation.setDeviceMetricsOverride", {"width": width, "height": height,
+                     "deviceScaleFactor": 1, "mobile": view == "mobile"}, session)
+            cdp.call("Page.bringToFront", session=session)
+            navigation = cdp.call("Page.navigate", {"url": html.resolve().as_uri()}, session)
+            if navigation.get("errorText") or not navigation.get("loaderId"):
+                raise RuntimeError(f"Chrome could not load the dashboard: {navigation}")
+            cdp.wait_loaded(session, navigation["loaderId"])
+            evaluated = cdp.call("Runtime.evaluate", {"expression":
+                "Promise.resolve(window.__scanBrowserSmoke).then("
+                "() => document.documentElement.outerHTML, () => document.documentElement.outerHTML)",
+                "awaitPromise": True, "returnByValue": True}, session)
+            rendered = evaluated.get("result", {}).get("value")
+            if not isinstance(rendered, str):
+                raise RuntimeError(f"Chrome did not return the live DOM: {evaluated}")
+            dom = "<!DOCTYPE html>\n" + rendered
+            layout = cdp.call("Page.getLayoutMetrics", session=session)
+            size = layout.get("cssContentSize") or layout["contentSize"]
+            captured = cdp.call("Page.captureScreenshot", {"format": "png", "fromSurface": True,
+                "captureBeyondViewport": True, "clip": {"x": 0, "y": 0, "width": width,
+                "height": max(height, math.ceil(size["height"])), "scale": 1}}, session)
+            image_bytes = base64.b64decode(captured["data"], validate=True)
+            # Capture the full document, including the register and the first
+            # finding left expanded by the smoke, before evaluating assertions.
             if output.unsafe_target(directory, [destination.name]):
                 raise OSError(f"refusing unsafe screenshot destination: {destination}")
-            shutil.copyfile(screenshot, destination)
-        if timed_out:
-            raise RuntimeError(f"Chrome timed out after {timeout:g} seconds")
-        if proc.returncode != 0:
-            raise RuntimeError(f"Chrome exited with status {proc.returncode}; see {stem.name}.stderr.txt")
+            destination.write_bytes(image_bytes)
+        finally:
+            status = pdf._stop(proc)
+            proc.stdin.close()
+            proc.stdout.close()
+            err.seek(0)
+            output.write_output(stem.with_suffix(".dom.html"), dom)
+            output.write_output(stem.with_suffix(".stderr.txt"), err.read())
+        if status not in (None, 0):
+            raise RuntimeError(f"Chrome exited with status {status}; see {stem.name}.stderr.txt")
         parser = ResultParser()
         parser.feed(dom)
         if parser.count != 1:
@@ -232,16 +311,14 @@ def run_case(chrome, directory, lang, view, timeout):
         result = json.loads("".join(parser.parts))
         if not isinstance(result, dict) or result.get("case") != case or not isinstance(result.get("checks"), list):
             raise RuntimeError("browser assertions did not complete (result marker is missing or pending)")
-        if not screenshot.is_file():
-            raise RuntimeError("Chrome did not create a screenshot")
-        with screenshot.open("rb") as handle:
-            header = handle.read(24)
+        header = image_bytes[:24]
         if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
             raise RuntimeError("Chrome screenshot is not a PNG")
         image_width, image_height = struct.unpack(">II", header[16:24])
         if image_width != width or image_height < 1:
             raise RuntimeError(f"unexpected screenshot dimensions: {image_width} x {image_height}")
         result["screenshot"] = destination.name
+        result["screenshotSize"] = {"width": image_width, "height": image_height}
         return result
 
 
@@ -250,6 +327,8 @@ def main(argv=None):
     parser.add_argument("--out", required=True, type=Path, help="directory for DOM, screenshots and summary.json")
     parser.add_argument("--timeout", type=float, default=45, help="real seconds per browser run (default: 45)")
     args = parser.parse_args(argv)
+    if os.name != "posix":
+        parser.error("the Chrome DevTools pipe check requires Linux or macOS")
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a positive, finite number")
     candidates = [os.environ["CHROME"]] if os.environ.get("CHROME") else pdf.CHROME_CANDIDATES

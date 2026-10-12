@@ -142,6 +142,120 @@ class VendorRegressionTests(unittest.TestCase):
                 vendor.vendor(self.dest)
         self.assert_old_copy(target)
 
+    def test_interruption_after_install_restores_existing_package(self):
+        target = self.old_copy()
+        real_replace = vendor.os.replace
+
+        def interrupted_install(source, destination):
+            result = real_replace(source, destination)
+            if Path(source).name == "package":
+                raise KeyboardInterrupt("interrupted after install")
+            return result
+
+        with patch.object(vendor.os, "replace", side_effect=interrupted_install):
+            with self.assertRaisesRegex(KeyboardInterrupt, "interrupted after install"):
+                vendor.vendor(self.dest)
+        self.assert_old_copy(target)
+
+    def test_interruption_after_install_removes_new_package(self):
+        real_replace = vendor.os.replace
+
+        def interrupted_install(source, destination):
+            result = real_replace(source, destination)
+            if Path(source).name == "package":
+                raise KeyboardInterrupt("interrupted after install")
+            return result
+
+        with patch.object(vendor.os, "replace", side_effect=interrupted_install):
+            with self.assertRaisesRegex(KeyboardInterrupt, "interrupted after install"):
+                vendor.vendor(self.dest)
+        self.assertEqual(list(self.dest.iterdir()), [])
+
+    def test_failed_rollback_after_install_keeps_recovery_copies(self):
+        real_replace = vendor.os.replace
+        cases = ((True, "withdraw"), (True, "restore"), (False, "withdraw"))
+        for existing, failed_move in cases:
+            with self.subTest(existing=existing, failed_move=failed_move):
+                dest = self.dest / f"{existing}-{failed_move}"
+                target = dest / vendor.NAME
+                if existing:
+                    target.mkdir(parents=True)
+                    (target / "old.py").write_text("keep the working copy\n", encoding="utf-8")
+
+                def failed_rollback(source, destination):
+                    if ((failed_move == "withdraw" and Path(destination).name == "uncommitted")
+                            or (failed_move == "restore" and Path(source).name == "previous")):
+                        raise PermissionError("injected rollback permission failure")
+                    result = real_replace(source, destination)
+                    if Path(source).name == "package":
+                        raise KeyboardInterrupt("interrupted after install")
+                    return result
+
+                with patch.object(vendor.os, "replace", side_effect=failed_rollback):
+                    with self.assertRaisesRegex(OSError, "could not restore previous state") as caught:
+                        vendor.vendor(dest)
+                recovery = list(dest.glob(f".{vendor.NAME}.vendor-*"))
+                self.assertEqual(len(recovery), 1)
+                if existing:
+                    backup = recovery[0] / "previous"
+                    self.assertEqual((backup / "old.py").read_text(encoding="utf-8"), "keep the working copy\n")
+                    self.assertIn(f"original copy is preserved at {backup}", str(caught.exception))
+                else:
+                    self.assertIn(f"destination is preserved at {target}", str(caught.exception))
+                    self.assertFalse((recovery[0] / "previous").exists())
+                installed = target if failed_move == "withdraw" else recovery[0] / "uncommitted"
+                self.assertEqual(vendor.check(installed), [])
+                self.assertEqual(target.exists(), failed_move == "withdraw")
+
+    def test_interruption_after_rollback_rename_still_finishes_restoration(self):
+        target = self.old_copy()
+        real_replace = vendor.os.replace
+        for interrupted_move in ("withdraw", "restore"):
+            with self.subTest(interrupted_move=interrupted_move):
+                def interrupted_rollback(source, destination):
+                    result = real_replace(source, destination)
+                    if Path(source).name == "package":
+                        raise OSError("injected install failure after rename")
+                    if ((interrupted_move == "withdraw" and Path(destination).name == "uncommitted")
+                            or (interrupted_move == "restore" and Path(source).name == "previous")):
+                        raise KeyboardInterrupt("interrupted after rollback rename")
+                    return result
+
+                with patch.object(vendor.os, "replace", side_effect=interrupted_rollback):
+                    with self.assertRaisesRegex(OSError, "injected install failure after rename"):
+                        vendor.vendor(self.dest)
+                self.assert_old_copy(target)
+
+    def test_failed_install_preserves_unexpected_destination(self):
+        real_replace = vendor.os.replace
+        for existing in (True, False):
+            with self.subTest(existing=existing):
+                dest = self.dest / str(existing)
+                target = dest / vendor.NAME
+                if existing:
+                    target.mkdir(parents=True)
+                    (target / "old.py").write_text("keep the working copy\n", encoding="utf-8")
+
+                def failed_install(source, destination):
+                    if Path(source).name == "package":
+                        target.mkdir()
+                        (target / "other.py").write_text("another process's file\n", encoding="utf-8")
+                        raise OSError("injected install failure")
+                    return real_replace(source, destination)
+
+                with patch.object(vendor.os, "replace", side_effect=failed_install):
+                    with self.assertRaisesRegex(OSError, "refusing to replace unexpected destination") as caught:
+                        vendor.vendor(dest)
+                self.assertEqual((target / "other.py").read_text(encoding="utf-8"), "another process's file\n")
+                self.assertEqual(sorted(path.name for path in target.iterdir()), ["other.py"])
+                recovery = list(dest.glob(f".{vendor.NAME}.vendor-*"))
+                self.assertEqual(len(recovery), 1)
+                self.assertEqual(vendor.check(recovery[0] / "package"), [])
+                if existing:
+                    backup = recovery[0] / "previous"
+                    self.assertEqual((backup / "old.py").read_text(encoding="utf-8"), "keep the working copy\n")
+                    self.assertIn(str(backup), str(caught.exception))
+
     def test_source_symlink_is_refused_before_existing_copy_is_changed(self):
         target = self.old_copy()
         outside = self.root / "outside.py"

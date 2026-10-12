@@ -8,6 +8,7 @@ import html
 import json
 import re
 from datetime import date
+from unicodedata import normalize
 from urllib.parse import unquote, urlsplit
 
 from . import style
@@ -153,13 +154,15 @@ def http_url(value, where):
                 valid = False
             else:
                 # urlsplit separates components; it does not validate domain
-                # names. Check decoded and IDNA-normalized host text so encoded
+                # names. Check decoded and NFKC-normalized host text so encoded
                 # delimiters cannot hide an unusable host. Keep paths/queries
-                # untouched and retain the original URL in the report.
+                # untouched and retain the original URL in the report. Python's
+                # IDNA2003 codec rejects valid modern IDNs (e.g. RTL labels ending
+                # in digits), so do not use it as a domain validity gate.
                 decoded = unquote(host, encoding="utf-8", errors="strict")
                 bracketed = parts.netloc.rsplit("@", 1)[-1].startswith("[")
-                normalized = decoded if bracketed else decoded.encode("idna").decode("ascii")
-                forbidden = "#/<>?@[\\]^|" + ("" if bracketed else ":%")
+                normalized = normalize("NFKC", decoded)
+                forbidden = "#/<>?@[\\]^|\ufffd" + ("" if bracketed else ":%")
                 valid = not any(char.isspace() or ord(char) < 32 or 127 <= ord(char) < 160
                                 or char in forbidden for char in decoded + normalized)
     except ValueError:

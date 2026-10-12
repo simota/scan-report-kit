@@ -177,12 +177,22 @@ def vendor(dest):
     files(PACKAGE)
     target.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=f".{NAME}.vendor-", dir=target.parent))
-    stage, backup = work / "package", work / "previous"
-    keep_backup = False
+    stage, backup, withdrawn = work / "package", work / "previous", work / "uncommitted"
+    keep_work = False
+    installing = False
 
     def ignore(directory, names):
         return [name for name in names if _ignored(name)
                 or (Path(directory) == PACKAGE and name == MANIFEST)]
+
+    def rollback_move(source, destination):
+        try:
+            os.replace(source, destination)
+        except BaseException:
+            # A signal can arrive just after rename succeeds. Finish restoring
+            # the other directory in that case, then re-raise the install error.
+            if os.path.lexists(source) or not os.path.lexists(destination):
+                raise
 
     try:
         shutil.copytree(PACKAGE, stage, symlinks=True, ignore=ignore)
@@ -195,19 +205,30 @@ def vendor(dest):
         try:
             if target.exists():
                 os.replace(target, backup)
+            installing = True
             os.replace(stage, target)
         except BaseException as e:
-            if os.path.lexists(backup):
-                try:
-                    os.replace(backup, target)
-                except BaseException as rollback:
-                    keep_backup = True
-                    raise OSError(f"could not install {target}; original copy is preserved at {backup}; "
-                                  f"could not restore it: {rollback or type(rollback).__name__}") from e
+            try:
+                # Directory rename cannot overwrite a nonempty directory.
+                # Withdraw a completed install before restoring the old copy;
+                # this also restores an originally absent destination.
+                if installing and os.path.lexists(target):
+                    if os.path.lexists(stage):
+                        raise OSError(f"refusing to replace unexpected destination {target}: "
+                                      "the staged copy was not installed")
+                    rollback_move(target, withdrawn)
+                if os.path.lexists(backup):
+                    rollback_move(backup, target)
+            except BaseException as rollback:
+                keep_work = True
+                recovery = (f"original copy is preserved at {backup}" if os.path.lexists(backup)
+                            else f"destination is preserved at {target}; recovery directory is preserved at {work}")
+                raise OSError(f"could not install {target}; {recovery}; "
+                              f"could not restore previous state: {rollback or type(rollback).__name__}") from e
             raise
     finally:
         # A failed restore must leave the original copy available for recovery.
-        if not keep_backup:
+        if not keep_work:
             shutil.rmtree(work)
     return target
 

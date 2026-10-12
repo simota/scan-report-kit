@@ -53,14 +53,16 @@ are nouns ("Verification basis"), not calls to action. Unchanged copy.
 - Labels, table heads, controls, metadata: the existing sans stack, small and
   letter-spaced, bold for Japanese (ground:
   `platform`). Sans is the apparatus; serif is the argument.
-- Code, IDs, paths: existing monospace stack.
+- Printable code, IDs and paths use the existing monospace stack. Dashboard
+  code is monospace; register IDs inherit the body serif and locations use sans.
 - PDF scale: body 10pt / 1.65 (Japanese mincho needs the extra leading; ground
   `ARBITRARY` within the 1.5–1.8 range used for CJK text), h1 20pt, h2 13pt,
   h3 11pt, captions and notes 8.5pt (`ARBITRARY`, a ~1.25 step).
 - Lining tabular figures for every count.
 
-**Colour.** Ink on paper; colour is reserved for severity and links. No fills
-behind text except listing highlights.
+**Colour.** Ink on paper; colour is reserved for severity and links. The
+printable document has no fills behind text except listing highlights.
+Dashboard details use a subtle background tint that follows the selected theme.
 
 | Role | Light | Ratio vs `#fff` | Dark | Ratio vs `#17171a` |
 |---|---|---|---|---|

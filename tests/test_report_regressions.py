@@ -7,6 +7,7 @@ import sys
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -186,7 +187,8 @@ class FormatContractTests(unittest.TestCase):
                 "https://%/", "https://%zz/", "https://%0/", "https://%00/", "https://%09example.org/",
                 "https://%20/", "https://%2f/", "https://%5c/", "https://%23/", "https://%3a/",
                 "https://%40/", "https://%5b/", "https://%5d/", "https://%7c/", "https://%25/",
-                "https://%ff/", "https://%c0%af/", "https://%EF%BC%8Fexample.org/", "https://\ufffd.org/")
+                "https://%ff/", "https://%c0%af/", "https://%EF%BC%8Fexample.org/", "https://\ufffd.org/",
+                "https://%EF%BF%BD.org/")
         for url in urls:
             with self.subTest(url=url):
                 self.assert_bad(lambda data: data["findings"][0].update(references=[{"url": url}]),
@@ -204,6 +206,25 @@ class FormatContractTests(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertEqual(report.http_url(url, "url"), url)
                 report.validate(document(finding(references=[{"url": url}])))
+
+    def test_modern_rtl_idns_and_percent_encoding_render_unchanged(self):
+        # RFC 5893 section 2 permits RTL labels ending in EN or AN digits;
+        # Python's older IDNA2003 codec rejects these otherwise valid hosts.
+        for host in ("مثال1.إختبار", "مثال١.إختبار", "نامه1.example"):
+            for spelling in (host, quote(host)):
+                url = "https://" + spelling + "/reference?q=a%20b"
+                with self.subTest(url=url):
+                    data = document(finding(references=[{"url": url}]))
+                    original = copy.deepcopy(data)
+                    self.assertIs(report.validate(data), data)
+                    parsed = Tags()
+                    parsed.feed(report.render_document(data, "en"))
+                    self.assertIn(("a", {"href": url}), parsed.tags)
+                    page = report.render_dashboard(data, "ja")
+                    payload = json.loads(re.search(
+                        r'<script id="data" type="application/json">(.*?)</script>', page, re.S).group(1))
+                    self.assertEqual(payload["findings"][0]["references"][0]["url"], url)
+                    self.assertEqual(data, original)
 
     def test_snippet_rejects_invalid_and_inexact_line_numbers(self):
         for change in ({"start": True}, {"start": 0}, {"start": -1}, {"start": 1.0},

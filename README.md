@@ -108,21 +108,24 @@ if its temporary directory cannot be created. Set `TMPDIR` to an existing
 writable directory when the system temporary directory is unavailable.
 
 GitHub Actions runs the checks on Python 3.9, 3.12 and 3.14 on Linux, and 3.12
-on macOS, with Node.js available. A real Chrome check exercises both languages
+on macOS, with Node.js available. A real Chrome check runs on Linux in CI and
+can also run locally on macOS. It exercises both languages
 at desktop and mobile widths, including filters, sorting, deep links, focus,
 escaping, theme changes, and horizontal overflow. Rendered HTML, the live DOM,
-screenshots and a result summary are retained as CI artifacts:
+full-page screenshots and a result summary are retained as CI artifacts:
 
 ```sh
 python3 scripts/check_browser.py --out out/browser-check
 ```
 
 Separate checks print both languages with real Chrome and WeasyPrint engines
-and inspect the PDF text with Poppler:
+and inspect titles, summaries, finding field text and running footers with
+Poppler. CI retains the PDFs, extracted text and rendered pages for inspection:
 
 ```sh
 python3 scripts/check_pdf.py --engine chrome
 python3 scripts/check_pdf.py --engine weasyprint
+# Add --out out/pdf-check to retain the generated files locally.
 ```
 
 These integration checks require `pdftotext` and the selected PDF engine in
