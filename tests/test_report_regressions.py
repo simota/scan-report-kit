@@ -1,6 +1,7 @@
 """Security and format-contract regressions for both report renderers."""
 
 import copy
+import html
 import json
 import re
 import sys
@@ -150,6 +151,41 @@ class ReportSecurityTests(unittest.TestCase):
         parsed.feed(report.render_document(data, "en"))
         self.assertFalse(any(tag in ("img", "script", "tag") for tag, _ in parsed.tags))
         self.assertIn(("a", {"href": 'https://example.org/?q="<tag>'}), parsed.tags)
+
+    def test_multiline_text_survives_html_newline_preprocessing(self):
+        text = '  First\r\nSecond\rThird & &#13; <tag>\r\n  '
+        data = document(finding(
+            location=text,
+            action={"label": "Action", "text": text},
+            fields=[{"label": "Evidence", "text": text}],
+        ))
+        data["summary"] = text
+        data["labels"] = {"title_col": text}
+        for lang in ("en", "ja"):
+            with self.subTest(lang=lang):
+                page = report.render_document(data, lang)
+                # HTML preprocesses physical newlines before it recognizes
+                # character references. Model that stage before parsing the
+                # resulting text and attribute values with stdlib helpers.
+                parsed_source = page.replace("\r\n", "\n").replace("\r", "\n")
+                prose = re.findall(r'<p class=[\'"](?:lead )?prose[\'"]>(.*?)</p>',
+                                   parsed_source, re.S)
+                self.assertEqual([html.unescape(value) for value in prose], [text, text, text])
+                tags = Tags()
+                tags.feed(parsed_source)
+                self.assertTrue(any(attrs.get("data-label") == text for _, attrs in tags.tags))
+                self.assertFalse(any(tag == "tag" for tag, _ in tags.tags))
+                payload = self.payload(report.render_dashboard(data, lang))
+                self.assertEqual(payload["summary"], text)
+                self.assertEqual(payload["findings"][0]["fields"][0]["text"], text)
+
+    def test_blank_document_summary_still_uses_the_missing_summary_label(self):
+        for value in ("", " \r\n\t "):
+            with self.subTest(summary=repr(value)):
+                data = document()
+                data["summary"] = value
+                page = report.render_document(data, "en")
+                self.assertIn('<p class="lead prose">No summary was recorded.</p>', page)
 
 
 class FormatContractTests(unittest.TestCase):

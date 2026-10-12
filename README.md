@@ -45,10 +45,15 @@ The CLI rejects duplicate JSON object keys and nonstandard `NaN`/`Infinity`
 constants before changing any outputs. Both renderers reject NUL characters and
 surrogate code points so recorded text cannot silently change during HTML
 parsing or UTF-8 encoding. Existing reports remain intact after invalid input.
+CR and CRLF line endings in report text survive HTML parsing, and a nonblank
+summary keeps its leading and trailing whitespace.
 
 The dashboard sorts IDs naturally (`F-2` before `F-10`) and searches source
 excerpts and references as well as finding text. Excluded records retain their
 original status while staying outside the summary counts.
+Copy-for-LLM keeps recorded inline Markdown syntax literal and body evidence
+in fenced blocks. Source highlights cover long lines when scrolling; bold line
+numbers keep marked evidence identifiable when printing without backgrounds.
 
 Two ways for a scan to adopt it:
 

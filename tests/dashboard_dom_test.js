@@ -268,10 +268,42 @@ test('copy exports safe fences and complete details with the Clipboard API', asy
   assert.ok(text.includes('`````text\nAction text marker ````\n`````'));
   assert.ok(text.includes('Body marker\nSecond line <&> 日本語'));
   assert.ok(text.includes('>    5 snippet_unique_token'));
-  assert.ok(text.includes('<https://example.test/reference_unique_token?q=1&x=2>'));
+  assert.ok(text.includes('<https://example.test/reference_unique_token?q=1&amp;x=2>'));
   assert.equal(button.textContent, h.data.labels.copied);
   h.runTimers();
   assert.equal(button.textContent, h.data.labels.copy_llm);
+});
+
+test('copy keeps Markdown syntax and HTML-like inline evidence literal', async () => {
+  const h = dashboard('en', { clipboard: 'success', mutate(data) {
+    const finding = data.findings[0];
+    finding.id = 'F_*[1]';
+    finding.title = '<img src=x> &copy; [link](https://example.test/) #\r\n next';
+    finding.location = 'src/`entry`_file.py\r\n  second\n\tthird';
+    finding.fields = [{ label: '<b>Evidence</b> &copy; #', text: '<b>literal evidence</b>\n[link](target)' }];
+    finding.references = [{ type: '[spec]', title: '<title> &copy;',
+      url: 'https://example.test/a<b>?one=1&copy;&two=2' }];
+  } });
+  copyButton(h).click();
+  await settle();
+  const text = h.copied[0];
+  assert.ok(text.startsWith('## F\\_\\*\\[1\\] · \\<img src=x\\> \\&copy; \\[link\\](https://example.test/) \\# next\n'));
+  assert.ok(text.includes('- Location: src/\\`entry\\`\\_file.py second third\n'));
+  assert.ok(text.includes('### \\<b\\>Evidence\\</b\\> \\&copy; \\#\n```text\n<b>literal evidence</b>\n[link](target)\n```'));
+  assert.ok(text.includes('- [\\[spec\\]] \\<title\\> \\&copy; <https://example.test/a%3Cb%3E?one=1&amp;copy;&amp;two=2>'));
+});
+
+test('copy keeps custom metadata labels from becoming nested Markdown lists', async () => {
+  for (const [label, escaped] of [['- Severity', '\\- Severity'], ['+ Severity', '\\+ Severity'],
+    ['1. Severity', '1\\. Severity'], ['1) Severity', '1\\) Severity'],
+    [' - Severity', '&#32;- Severity'], ['  + Severity', '&#32;&#32;+ Severity'],
+    ['   1. Severity', '&#32;&#32;&#32;1. Severity'], ['\t- Severity', '&#9;- Severity'],
+    ['    Severity', '&#32;&#32;&#32;&#32;Severity']]) {
+    const h = dashboard('en', { clipboard: 'success', mutate(data) { data.labels.severity = label; } });
+    copyButton(h).click();
+    await settle();
+    assert.ok(h.copied[0].includes('- ' + escaped + ': High\n'), label);
+  }
 });
 
 test('denied clipboard uses selection copy, restores focus, and cleans up', async () => {
@@ -317,6 +349,14 @@ test('a large backtick-rich field copies without exceeding the argument stack', 
   await settle();
   assert.equal(h.copied.length, 1);
   assert.ok(h.copied[0].includes('`````text\n' + text + '\n`````'));
+});
+
+test('copy handles long whitespace runs without quadratic newline matching', async () => {
+  const title = 'Long trailing whitespace' + ' '.repeat(350000);
+  const h = dashboard('en', { clipboard: 'success', mutate(data) { data.findings[0].title = title; } });
+  copyButton(h).click();
+  await settle();
+  assert.ok(h.copied[0].startsWith('## F-10 · ' + title + '\n'));
 });
 
 test('deep links decode the fragment, reveal excluded rows, and focus their control', () => {

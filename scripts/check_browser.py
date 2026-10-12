@@ -86,6 +86,7 @@ window.__scanBrowserSmoke = (async function () {
     await pause(20);
     check(document.documentElement.lang === C.lang, 'document language');
     check(byId('h').textContent === C.project, 'project rendered by JavaScript');
+    check(byId('summary').querySelector('p').textContent === C.summary, 'summary whitespace is preserved');
     check(rows().length === C.included, 'initial included row count');
     check(document.querySelectorAll('#cards .card').length === 4, 'summary cards rendered');
     check(document.querySelectorAll('#lists > section').length === 3, 'runtime completed');
@@ -111,6 +112,8 @@ window.__scanBrowserSmoke = (async function () {
     document.querySelector('#priority a[href="#' + C.firstAnchor + '"]').click();
     check(!byId(C.firstAnchor + '-detail').hidden, 'repeated deep link reopens details');
     check(byId(C.firstAnchor + '-detail').textContent.includes(C.markup), 'special characters remain text');
+    check(Array.from(byId(C.firstAnchor + '-detail').querySelectorAll('dd')).some(node =>
+          node.textContent === C.evidence), 'evidence preserves CR, CRLF, and indentation');
     check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
 
     byId('reset').click();
@@ -123,6 +126,9 @@ window.__scanBrowserSmoke = (async function () {
     const snippet = byId(C.firstAnchor + '-detail').querySelector('.snippet');
     const hit = snippet.querySelector('.hit'), normal = snippet.querySelector('span:not(.hit)');
     check(snippet.querySelectorAll('.hit').length === 3 && !!normal, 'source excerpt marks the recorded lines');
+    const longHit = Array.from(snippet.querySelectorAll('.hit')).find(node => node.textContent.endsWith(C.longSource));
+    check(!!longHit && snippet.scrollWidth > snippet.clientWidth, 'long source line scrolls inside the excerpt');
+    check(longHit.scrollWidth <= longHit.clientWidth + 1, 'source highlight covers the full long line');
     for (const mode of ['light', 'dark']) {
       document.documentElement.dataset.theme = mode;
       check(background(hit) !== background(normal), mode + ' source highlight is visible against the detail background');
@@ -164,6 +170,7 @@ window.__scanBrowserSmoke = (async function () {
     await document.fonts.ready;
     check(document.documentElement.lang === C.lang, 'document language');
     check(document.querySelector('.project').textContent === C.project, 'project rendered in the document');
+    check(document.querySelector('.lead').textContent === C.summary, 'summary whitespace is preserved');
     const table = document.querySelector('.index'), head = table.tHead;
     const rows = Array.from(table.tBodies[0].rows);
     check(rows.length === C.included, 'included finding index');
@@ -184,7 +191,13 @@ window.__scanBrowserSmoke = (async function () {
             'mobile index caption spans the card width');
     }
     check(document.getElementById(C.firstAnchor).textContent.includes(C.markup), 'special characters remain text');
+    check(Array.from(document.getElementById(C.firstAnchor).querySelectorAll('.finding-field p')).some(node =>
+          node.textContent === C.evidence), 'evidence preserves CR, CRLF, and indentation');
     check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
+    const snippet = document.getElementById(C.firstAnchor).querySelector('.snippet');
+    const hit = snippet.querySelector('.hit'), normal = snippet.querySelector('span:not(.hit)');
+    check(Number(getComputedStyle(hit.querySelector('b')).fontWeight) >
+          Number(getComputedStyle(normal.querySelector('b')).fontWeight), 'source highlight has a non-color cue');
     const root = document.documentElement;
     metrics = { innerWidth: window.innerWidth, clientWidth: root.clientWidth,
       scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth), rowDisplay: getComputedStyle(rows[0]).display };
@@ -199,6 +212,35 @@ window.__scanBrowserSmoke = (async function () {
   marker.textContent = JSON.stringify({ case: C.case, ok: errors.length === 0,
     checks, errors, metrics }).replace(/</g, '\\u003c');
 })();
+"""
+
+
+PRINT_SMOKE_JS = r"""
+window.__scanBrowserPrintSmoke = function () {
+  'use strict';
+  const C = __CONFIG__;
+  const marker = document.getElementById('scan-report-browser-result');
+  const result = JSON.parse(marker.textContent);
+  function check(condition, name) {
+    if (!condition) throw new Error(name);
+    result.checks.push(name);
+  }
+  try {
+    check(window.matchMedia('print').matches, 'print media is active');
+    const finding = document.getElementById(C.firstAnchor + (C.documentView ? '' : '-detail'));
+    const snippet = finding.querySelector('.snippet');
+    const hit = Array.from(snippet.querySelectorAll('.hit')).find(node => node.textContent.endsWith(C.longSource));
+    const normal = snippet.querySelector('span:not(.hit)');
+    check(!!hit && hit.scrollWidth <= hit.clientWidth + 1, 'long printed source lines wrap within the excerpt');
+    check(snippet.scrollWidth <= snippet.clientWidth + 1, 'printed source excerpt has no horizontal clipping');
+    check(Number(getComputedStyle(hit.querySelector('b')).fontWeight) >
+          Number(getComputedStyle(normal.querySelector('b')).fontWeight), 'printed source highlight has a non-color cue');
+  } catch (error) {
+    result.errors.push(String(error.message || error));
+  }
+  result.ok = result.errors.length === 0;
+  marker.textContent = JSON.stringify(result).replace(/</g, '\\u003c');
+};
 """
 
 
@@ -292,14 +334,23 @@ def make_page(lang, view, document_view=False):
     first = data["findings"][0]
     first["title"] += " — " + MARKUP
     first["location"] = "src/" + "long_unbroken_path_" * 12 + ":42"
-    first.setdefault("fields", []).append({"label": "Browser smoke", "text": SEARCH + " </script> " + MARKUP})
+    evidence = SEARCH + " </script> " + MARKUP + "\r\n  indented evidence line\rfinal evidence line"
+    first.setdefault("fields", []).append({"label": "Browser smoke", "text": evidence})
+    data["summary"] = "\n  " + data["summary"] + "\r\nSummary continuation\rFinal summary line  \n"
+    snippet = first["snippet"]
+    marked_index = snippet["hit"][0] - snippet["start"]
+    long_source = snippet["lines"][marked_index] + " # " + "long_source_evidence_" * 32
+    snippet["lines"][marked_index] = long_source
     width, _ = VIEWPORTS[view]
     config = {"case": case_name(lang, view, document_view), "lang": lang, "project": data["meta"]["project"],
               "width": width, "mobile": view == "mobile", "markup": MARKUP, "search": SEARCH,
               "included": 4, "excluded": 1, "sortedIds": ["F-1", "F-2", "F-10", "F-20"],
-              "firstId": ids[0], "firstAnchor": report.anchor(0), "excludedAnchor": report.anchor(4)}
+              "firstId": ids[0], "firstAnchor": report.anchor(0), "excludedAnchor": report.anchor(4),
+              "summary": data["summary"], "evidence": evidence, "longSource": long_source,
+              "documentView": document_view}
     source = DOCUMENT_SMOKE_JS if document_view else SMOKE_JS
-    script = source.replace("__CONFIG__", json.dumps(config, ensure_ascii=True).replace("<", "\\u003c"), 1)
+    encoded_config = json.dumps(config, ensure_ascii=True).replace("<", "\\u003c")
+    script = source.replace("__CONFIG__", encoded_config, 1) + PRINT_SMOKE_JS.replace("__CONFIG__", encoded_config, 1)
     harness = ('<script type="application/json" id="' + RESULT_ID + '">{"ok":false,"state":"pending"}</script>\n'
                + "<script>\n" + script + "\n</script>\n")
     page = (report.render_document if document_view else report.render_dashboard)(data, lang)
@@ -356,6 +407,15 @@ def run_case(chrome, directory, lang, view, timeout, document_view=False):
             rendered = evaluated.get("result", {}).get("value")
             if not isinstance(rendered, str):
                 raise RuntimeError(f"Chrome did not return the live DOM: {evaluated}")
+            dom = "<!DOCTYPE html>\n" + rendered
+            cdp.call("Emulation.setEmulatedMedia", {"media": "print"}, session)
+            printed = cdp.call("Runtime.evaluate", {"expression":
+                "window.__scanBrowserPrintSmoke(); document.documentElement.outerHTML",
+                "returnByValue": True}, session)
+            rendered = printed.get("result", {}).get("value")
+            if not isinstance(rendered, str):
+                raise RuntimeError(f"Chrome did not complete the print checks: {printed}")
+            cdp.call("Emulation.setEmulatedMedia", {"media": "screen"}, session)
             dom = "<!DOCTYPE html>\n" + rendered
             layout = cdp.call("Page.getLayoutMetrics", session=session)
             size = layout.get("cssContentSize") or layout["contentSize"]

@@ -283,7 +283,10 @@ def labels_for(data, lang):
 
 
 def esc(s):
-    return html.escape(str(s or ""))
+    # HTML input preprocessing normalizes literal CR and CRLF to LF before
+    # parsing text or attributes. A character reference keeps recorded text
+    # intact, including Windows line endings in multiline evidence.
+    return html.escape(str(s or "")).replace("\r", "&#13;")
 
 
 def plural(L, key, n):
@@ -438,14 +441,14 @@ def render_document(data, lang):
     excluded_html = (f"<section class='excluded-section' id='excluded'><h2>{esc(L['excluded'])}</h2>"
                      f"<p class='section-note'>{esc(L['excluded_note'])}</p>" + "".join(card(f) for f in excluded) + "</section>"
                      if excluded else "")
-    summary = data.get("summary", "").strip()
+    summary = data.get("summary", "")
     return f"""<!doctype html>
 <html lang="{esc(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(L['title'])} - {esc(m['project'])}</title><style>{style.document_css(L['running_footer'])}</style></head><body>
 <header class="report-header"><p class="kicker">{esc(L['kind'])}</p><h1>{esc(L['title'])}</h1>
 <p class="project">{esc(m['project'])}</p>{meta}</header>
 <main>
-<p class="lead prose">{esc(summary) if summary else esc(L['no_summary'])}</p>
+<p class="lead prose">{esc(summary) if summary.strip() else esc(L['no_summary'])}</p>
 <section class="summary-section" id="summary"><h2>{esc(L['summary'])}</h2><p>{esc(headline(data, L))}</p>{metrics}
 <h3 class="limit-heading">{esc(L['limitations'])}</h3><div class="limits">{bullets(data.get('limitations', []), 'limitations_empty')}</div></section>
 <section id="priority-queue"><h2>{esc(L['priority'])}</h2><p class="section-note">{esc(L['priority_note'])}</p>{queue}</section>
