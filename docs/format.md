@@ -7,10 +7,21 @@ dashboard, printable report and PDF without writing any rendering code.
 without modifying it, and raises `FormatError` for invalid input. Both
 `render_document()` and `render_dashboard()` also validate their input; their
 `lang` argument must be `en` or `ja`, otherwise they raise `FormatError`.
-Text must be valid Unicode without surrogate code points. Required strings
+Text must be valid Unicode without surrogate code points or NUL (U+0000).
+HTML parsers replace NUL characters, so accepting them would change recorded
+evidence when it is read. Required strings
 must contain a non-whitespace character. Unknown keys are ignored and are not
 copied into the dashboard payload, so extensions cannot change built-in labels
 or rendering behavior.
+
+The CLI rejects duplicate keys in any JSON object before decoding can silently
+replace findings or metadata. This also applies to extension objects and to keys
+that become identical after decoding Unicode escapes. Nonstandard JSON constants
+(`NaN`, `Infinity`, `-Infinity`) are rejected; quoted strings with those names are
+ordinary text. JSON decoding failures, including a nesting limit, return exit
+code `2` before any existing output is changed. Callers of the Python rendering
+API supply an already-decoded dictionary and should enforce the same decoding
+rules when reading untrusted JSON themselves.
 
 ```json
 {

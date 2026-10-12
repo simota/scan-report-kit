@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise rendered dashboards in real headless Chrome and retain CI artifacts.
+"""Exercise dashboards and printable HTML in real Chrome and retain CI artifacts.
 
 Requires Chrome/Chromium on Linux or macOS (CHROME selects a binary). No npm
 packages or browser driver are needed. Missing Chrome, missing result markers
@@ -64,6 +64,13 @@ window.__scanBrowserSmoke = (async function () {
     byId('f-q').value = value;
     byId('f-q').dispatchEvent(new Event('input', { bubbles: true }));
   }
+  function background(node) {
+    for (; node; node = node.parentElement) {
+      const color = getComputedStyle(node).backgroundColor;
+      if (color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') return color;
+    }
+    return '';
+  }
   async function link(anchor) {
     window.location.hash = anchor;
     for (let i = 0; i < 30; i++) {
@@ -113,6 +120,15 @@ window.__scanBrowserSmoke = (async function () {
     const theme = document.documentElement.dataset.theme;
     byId('theme').click();
     check(document.documentElement.dataset.theme !== theme, 'theme toggle');
+    const snippet = byId(C.firstAnchor + '-detail').querySelector('.snippet');
+    const hit = snippet.querySelector('.hit'), normal = snippet.querySelector('span:not(.hit)');
+    check(snippet.querySelectorAll('.hit').length === 3 && !!normal, 'source excerpt marks the recorded lines');
+    for (const mode of ['light', 'dark']) {
+      document.documentElement.dataset.theme = mode;
+      check(background(hit) !== background(normal), mode + ' source highlight is visible against the detail background');
+      check(Number(getComputedStyle(hit.querySelector('b')).fontWeight) >
+            Number(getComputedStyle(normal.querySelector('b')).fontWeight), mode + ' source highlight has a non-color cue');
+    }
     document.documentElement.dataset.theme = 'light';
     window.scrollTo(0, 0);
     await pause(50);
@@ -122,6 +138,56 @@ window.__scanBrowserSmoke = (async function () {
       rowDisplay: getComputedStyle(rows()[0]).display };
     check(Math.abs(window.innerWidth - C.width) <= 1, 'requested viewport width');
     check(metrics.rowDisplay === (C.mobile ? 'grid' : 'table-row'), 'responsive register layout');
+    check(metrics.scrollWidth <= metrics.clientWidth + 1, 'no page horizontal overflow');
+    check(window.__scanBrowserErrors.length === 0, 'no browser runtime errors');
+  } catch (error) {
+    errors.push(String(error.message || error));
+  }
+  errors.push(...window.__scanBrowserErrors);
+  marker.textContent = JSON.stringify({ case: C.case, ok: errors.length === 0,
+    checks, errors, metrics }).replace(/</g, '\\u003c');
+})();
+"""
+
+
+DOCUMENT_SMOKE_JS = r"""
+window.__scanBrowserSmoke = (async function () {
+  'use strict';
+  const C = __CONFIG__, checks = [], errors = [];
+  const marker = document.getElementById('scan-report-browser-result');
+  let metrics = {};
+  function check(condition, name) {
+    if (!condition) throw new Error(name);
+    checks.push(name);
+  }
+  try {
+    await document.fonts.ready;
+    check(document.documentElement.lang === C.lang, 'document language');
+    check(document.querySelector('.project').textContent === C.project, 'project rendered in the document');
+    const table = document.querySelector('.index'), head = table.tHead;
+    const rows = Array.from(table.tBodies[0].rows);
+    check(rows.length === C.included, 'included finding index');
+    check(table.getAttribute('role') === 'table' && head.getAttribute('role') === 'rowgroup' &&
+          table.tBodies[0].getAttribute('role') === 'rowgroup', 'index preserves explicit table structure');
+    check(Array.from(head.rows[0].cells).every(cell =>
+          cell.getAttribute('role') === 'columnheader' && cell.getAttribute('scope') === 'col'),
+          'index identifies column headers');
+    check(rows.every(row => row.getAttribute('role') === 'row' &&
+          Array.from(row.cells).every(cell => cell.getAttribute('role') === 'cell')), 'index identifies rows and cells');
+    check(getComputedStyle(head).display !== 'none' && getComputedStyle(head).visibility !== 'hidden',
+          'index headers remain available to assistive technology');
+    if (C.mobile) {
+      const bounds = head.getBoundingClientRect();
+      check(bounds.width <= 1 && bounds.height <= 1 && getComputedStyle(head).clipPath !== 'none',
+            'mobile index headers are visually clipped');
+    }
+    check(document.getElementById(C.firstAnchor).textContent.includes(C.markup), 'special characters remain text');
+    check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
+    const root = document.documentElement;
+    metrics = { innerWidth: window.innerWidth, clientWidth: root.clientWidth,
+      scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth), rowDisplay: getComputedStyle(rows[0]).display };
+    check(Math.abs(window.innerWidth - C.width) <= 1, 'requested viewport width');
+    check(metrics.rowDisplay === (C.mobile ? 'block' : 'table-row'), 'responsive index layout');
     check(metrics.scrollWidth <= metrics.clientWidth + 1, 'no page horizontal overflow');
     check(window.__scanBrowserErrors.length === 0, 'no browser runtime errors');
   } catch (error) {
@@ -207,7 +273,11 @@ class DevTools:
             self.read()
 
 
-def make_page(lang, view):
+def case_name(lang, view, document_view=False):
+    return ("document-" if document_view else "") + f"{lang}-{view}"
+
+
+def make_page(lang, view, document_view=False):
     sample = ROOT / "examples" / ("report.sample.ja.json" if lang == "ja" else "report.sample.json")
     data = json.loads(sample.read_text(encoding="utf-8"))
     # A small, explicit fixture makes natural sorting and field-only search
@@ -222,20 +292,21 @@ def make_page(lang, view):
     first["location"] = "src/" + "long_unbroken_path_" * 12 + ":42"
     first.setdefault("fields", []).append({"label": "Browser smoke", "text": SEARCH + " </script> " + MARKUP})
     width, _ = VIEWPORTS[view]
-    config = {"case": f"{lang}-{view}", "lang": lang, "project": data["meta"]["project"],
+    config = {"case": case_name(lang, view, document_view), "lang": lang, "project": data["meta"]["project"],
               "width": width, "mobile": view == "mobile", "markup": MARKUP, "search": SEARCH,
               "included": 4, "excluded": 1, "sortedIds": ["F-1", "F-2", "F-10", "F-20"],
               "firstId": ids[0], "firstAnchor": report.anchor(0), "excludedAnchor": report.anchor(4)}
-    script = SMOKE_JS.replace("__CONFIG__", json.dumps(config, ensure_ascii=True).replace("<", "\\u003c"), 1)
+    source = DOCUMENT_SMOKE_JS if document_view else SMOKE_JS
+    script = source.replace("__CONFIG__", json.dumps(config, ensure_ascii=True).replace("<", "\\u003c"), 1)
     harness = ('<script type="application/json" id="' + RESULT_ID + '">{"ok":false,"state":"pending"}</script>\n'
                + "<script>\n" + script + "\n</script>\n")
-    page = report.render_dashboard(data, lang)
+    page = (report.render_document if document_view else report.render_dashboard)(data, lang)
     return page.replace("</head>", ERROR_CAPTURE + "</head>", 1).replace("</body>", harness + "</body>", 1)
 
 
-def run_case(chrome, directory, lang, view, timeout):
-    case = f"{lang}-{view}"
-    stem = directory / ("dashboard-" + case)
+def run_case(chrome, directory, lang, view, timeout, document_view=False):
+    case = case_name(lang, view, document_view)
+    stem = directory / (case if document_view else "dashboard-" + case)
     artifacts = [stem.with_suffix(suffix) for suffix in (".html", ".dom.html", ".stderr.txt", ".png")]
     bad = output.unsafe_target(directory, [path.name for path in artifacts])
     if bad:
@@ -244,7 +315,7 @@ def run_case(chrome, directory, lang, view, timeout):
     for artifact in artifacts:
         artifact.unlink(missing_ok=True)
     html = stem.with_suffix(".html")
-    output.write_output(html, make_page(lang, view))
+    output.write_output(html, make_page(lang, view, document_view))
     with tempfile.TemporaryDirectory(prefix="scan-report-browser-") as temp, tempfile.TemporaryFile(
             "w+", encoding="utf-8", errors="replace") as err:
         stage = Path(temp)
@@ -274,7 +345,7 @@ def run_case(chrome, directory, lang, view, timeout):
             cdp.call("Page.bringToFront", session=session)
             navigation = cdp.call("Page.navigate", {"url": html.resolve().as_uri()}, session)
             if navigation.get("errorText") or not navigation.get("loaderId"):
-                raise RuntimeError(f"Chrome could not load the dashboard: {navigation}")
+                raise RuntimeError(f"Chrome could not load the report page: {navigation}")
             cdp.wait_loaded(session, navigation["loaderId"])
             evaluated = cdp.call("Runtime.evaluate", {"expression":
                 "Promise.resolve(window.__scanBrowserSmoke).then("
@@ -340,16 +411,17 @@ def main(argv=None):
     except OSError as error:
         parser.exit(2, f"browser check: {error}\n")
     results = []
-    for lang in ("en", "ja"):
-        for view in VIEWPORTS:
-            try:
-                result = run_case(chrome, args.out, lang, view, args.timeout)
-            except (OSError, ValueError, RuntimeError) as error:
-                result = {"case": f"{lang}-{view}", "ok": False, "errors": [str(error)]}
-            results.append(result)
-            print(f"{'PASS' if result.get('ok') is True else 'FAIL'} {result['case']}: "
-                  + (f"{len(result['checks'])} browser checks" if result.get("ok") is True
-                     else "; ".join(result.get("errors", ["unknown failure"]))))
+    cases = ((lang, view, document_view) for document_view in (False, True)
+             for lang in ("en", "ja") for view in VIEWPORTS)
+    for lang, view, document_view in cases:
+        try:
+            result = run_case(chrome, args.out, lang, view, args.timeout, document_view)
+        except (OSError, ValueError, RuntimeError) as error:
+            result = {"case": case_name(lang, view, document_view), "ok": False, "errors": [str(error)]}
+        results.append(result)
+        print(f"{'PASS' if result.get('ok') is True else 'FAIL'} {result['case']}: "
+              + (f"{len(result['checks'])} browser checks" if result.get("ok") is True
+                 else "; ".join(result.get("errors", ["unknown failure"]))))
     passed = all(result.get("ok") is True for result in results)
     try:
         output.write_output(args.out / "summary.json", json.dumps({"ok": passed, "cases": results}, indent=2) + "\n")

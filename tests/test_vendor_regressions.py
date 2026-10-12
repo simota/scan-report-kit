@@ -327,6 +327,29 @@ class VendorRegressionTests(unittest.TestCase):
             self.assertTrue(vendor.check(alias))
             opened.assert_not_called()
 
+    def test_check_reports_root_replaced_after_scanning(self):
+        original_scan = vendor._scan
+        for replacement in ("missing", "symlink", "regular-file"):
+            with self.subTest(replacement=replacement):
+                target = vendor.vendor(self.dest / replacement)
+                moved = target.with_name("previous-package")
+
+                def replace_after_scan(copy):
+                    result = original_scan(copy)
+                    target.rename(moved)
+                    if replacement == "symlink":
+                        target.symlink_to(moved, target_is_directory=True)
+                    elif replacement == "regular-file":
+                        target.write_text("not a package\n", encoding="utf-8")
+                    return result
+
+                with patch.object(vendor, "_scan", side_effect=replace_after_scan):
+                    with patch.object(vendor.os, "open", wraps=os.open) as opened:
+                        problems = vendor.check(target)
+                self.assertTrue(problems, "a changed package root must not pass its integrity check")
+                self.assertTrue(any(str(target) in problem for problem in problems))
+                opened.assert_not_called()
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "requires FIFO support")
     def test_check_rejects_fifo_without_opening_it(self):
         target = vendor.vendor(self.dest)

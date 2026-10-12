@@ -201,6 +201,69 @@ class CliRegressionTests(unittest.TestCase):
             code = main(args)
         return code, stdout.getvalue(), stderr.getvalue()
 
+    def assert_invalid_json_preserves_outputs(self, source_text, diagnostic):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "input.json"
+            source.write_text(source_text, encoding="utf-8")
+            out = root / "out"
+            out.mkdir()
+            previous = {"dashboard.html": b"old dashboard", "report.html": b"old report",
+                        "report.pdf": b"old PDF"}
+            for name, contents in previous.items():
+                (out / name).write_bytes(contents)
+            code, stdout, error = self.run_cli([str(source), "--out", str(out), "--no-pdf"])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(diagnostic, error)
+            self.assertNotIn("Traceback", error)
+            self.assertEqual({p.name: p.read_bytes() for p in out.iterdir()}, previous)
+
+    def test_duplicate_json_keys_cannot_silently_replace_findings_or_severity(self):
+        finding = ('{"id":"F-1","title":"High risk","severity":"High",'
+                   '"status":"Open"}')
+        prefix = ('{"format":"scan-report/1",'
+                  '"meta":{"project":"Demo","date":"2026-10-12"},')
+        cases = [
+            prefix + '"findings":[' + finding + '],"findings":[]}',
+            prefix + '"findings":[' + finding + '],"\\u0066indings":[]}',
+            prefix + '"findings":[' + finding[:-1] + ',"severity":"Info"}]}',
+            prefix + '"findings":[],"extension":{"key":1,"key":2}}',
+        ]
+        for source in cases:
+            with self.subTest(source=source):
+                self.assert_invalid_json_preserves_outputs(source, "duplicate JSON object key")
+
+    def test_nonstandard_json_constants_are_rejected_even_in_extensions(self):
+        for value in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value):
+                source = SAMPLE.read_text(encoding="utf-8").rstrip()[:-1] + ',"extension":' + value + '}'
+                self.assert_invalid_json_preserves_outputs(source, "invalid JSON constant")
+
+    def test_json_nesting_limit_is_an_input_error(self):
+        # Exercise the parser's failure path without relying on a particular
+        # interpreter's JSON nesting limit or risking a native stack overflow.
+        with patch("scan_report_kit.__main__.json.loads", side_effect=RecursionError("JSON nesting limit")):
+            self.assert_invalid_json_preserves_outputs(SAMPLE.read_text(encoding="utf-8"), "JSON nesting limit")
+
+    def test_standard_json_extensions_and_quoted_constants_remain_supported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "input.json"
+            data = json.loads(SAMPLE.read_text(encoding="utf-8"))
+            data["summary"] = "NaN, Infinity and -Infinity are ordinary text when quoted."
+            source.write_text(json.dumps(data)[:-1] + ',"extension":'
+                              '{"large":1e400,"small":1e-400,"items":[{"key":true},{"key":null}]}}',
+                              encoding="utf-8")
+            out = root / "out"
+            code, _, error = self.run_cli([str(source), "--out", str(out), "--no-pdf"])
+            self.assertEqual(code, 0, error)
+            page = (out / "dashboard.html").read_text(encoding="utf-8")
+            payload = json.loads(page.split('<script id="data" type="application/json">', 1)[1]
+                                 .split("</script>", 1)[0])
+            self.assertEqual(payload["summary"], data["summary"])
+            self.assertNotIn("extension", payload)
+
     def test_output_cannot_overwrite_input_even_with_no_pdf(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "report.pdf"

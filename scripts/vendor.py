@@ -127,9 +127,9 @@ def check(copy):
     # Do not open a MANIFEST through an unsafe root directory.
     try:
         if not stat.S_ISDIR(copy.lstat().st_mode):
-            return problems
-    except OSError:
-        return problems
+            return problems + [f"{copy}: not a regular directory (symlinks are not allowed)"]
+    except OSError as e:
+        return problems + [f"{copy}: cannot inspect package directory: {e.strerror or e}"]
     listed = copy / MANIFEST
     try:
         with _regular_file(listed) as handle:
