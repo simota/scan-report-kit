@@ -74,10 +74,12 @@ old copy if installation fails. If restoration also fails, the diagnostic names
 the preserved recovery directory. `--check` rejects edited/missing/extra files,
 malformed manifests, symlinks and special files. It checks integrity against the
 copy's own manifest; it does not establish that the copy is the latest upstream
-version. Verification holds directory descriptors and opens each path component
-relative to them without following symlinks. A root or nested directory that is
-replaced during inspection is reported as an integrity failure, and reads stay
-attached to the inspected directories.
+version. Verification records each tracked file and directory's identity in
+the initial scan, then compares it on subsequent opens and at the end of the
+check. Held directory descriptors and component-by-component opens keep reads
+attached to the inspected tree without following symlinks. A mismatched
+identity is an integrity failure. These checks do not lock the tree against
+concurrent writers.
 
 The standalone vendoring script requires directory-descriptor support
 (`dir_fd`, `scandir(fd)`, `O_DIRECTORY` and `O_NOFOLLOW`), available on the

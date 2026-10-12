@@ -42,17 +42,36 @@ def _identity(info):
     return stat.S_IFMT(info.st_mode), info.st_dev, info.st_ino
 
 
-def _check_binding(path, expected, *, dir_fd=None):
-    current = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+def _check_identity(path, current, expected):
     if _identity(current) != _identity(expected):
         raise ValueError(f"{path}: entry changed during verification (symlinks are not allowed)")
 
 
+def _check_binding(path, expected, *, dir_fd=None):
+    _check_identity(path, os.stat(path, dir_fd=dir_fd, follow_symlinks=False), expected)
+
+
+def _recorded_info(recorded, parts):
+    if recorded is None:
+        return None
+    try:
+        return recorded[parts]
+    except KeyError:
+        raise ValueError(f"{'/'.join(parts)}: entry was not recorded while scanning") from None
+
+
+def _record_identity(recorded, parts, info):
+    # Never replace the first observation, even if scandir yields a name twice.
+    _check_identity('/'.join(parts) or '.', info, recorded.setdefault(parts, info))
+
+
 @contextmanager
-def _directory_fd(path, *, dir_fd=None):
+def _directory_fd(path, *, dir_fd=None, expected=None):
     """Pin one directory without following a substituted final component."""
     _require_dir_fds()
     before = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+    if expected is not None:
+        _check_identity(path, before, expected)
     if not stat.S_ISDIR(before.st_mode):
         raise ValueError(f"{path}: not a regular directory (symlinks are not allowed)")
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
@@ -69,13 +88,32 @@ def _directory_fd(path, *, dir_fd=None):
 
 
 @contextmanager
-def _directory_parts(root_fd, parts):
+def _directory_parts(root_fd, parts, *, recorded=None):
     """Resolve ancestors one at a time; O_NOFOLLOW alone protects only a leaf."""
     with ExitStack() as stack:
         directory = root_fd
+        prefix = ()
         for part in parts:
-            directory = stack.enter_context(_directory_fd(part, dir_fd=directory))
+            prefix += (part,)
+            directory = stack.enter_context(_directory_fd(part, dir_fd=directory,
+                                                           expected=_recorded_info(recorded, prefix)))
         yield directory
+
+
+def _verify_recorded(root, root_fd, recorded):
+    """Recheck every managed entry, including empty dirs and files already read."""
+    problems = []
+    for parts, expected in sorted(recorded.items()):
+        path = root.joinpath(*parts)
+        try:
+            if not parts:
+                _check_binding(root, expected)
+            else:
+                with _directory_parts(root_fd, parts[:-1], recorded=recorded) as directory:
+                    _check_binding(parts[-1], expected, dir_fd=directory)
+        except (OSError, ValueError) as e:
+            problems.append(f"{path}: {e}")
+    return problems
 
 
 def _ignored(name):
@@ -93,45 +131,53 @@ def _path_problem(rel):
     return None
 
 
-def _scan(root, *, root_fd=None):
+def _scan(root, *, root_fd=None, recorded=None):
     """List regular package files without following links, including broken links."""
     root = Path(root)
+    if recorded is None:
+        recorded = {}
     try:
         if root_fd is None:
             with _directory_fd(root) as opened:
-                return _scan_opened(root, opened)
-        return _scan_opened(root, root_fd)
+                paths, problems = _scan_opened(root, opened, recorded)
+                return paths, problems + _verify_recorded(root, opened, recorded)
+        return _scan_opened(root, root_fd, recorded)
     except (OSError, ValueError) as e:
         return [], [f"{root}: {e}"]
 
 
-def _scan_opened(root, root_fd):
+def _scan_opened(root, root_fd, recorded):
     paths, problems = [], []
+    _record_identity(recorded, (), os.fstat(root_fd))
     pending = [()]
     while pending:
         parts = pending.pop()
         directory = root.joinpath(*parts)
         try:
-            with _directory_parts(root_fd, parts) as fd:
+            with _directory_parts(root_fd, parts, recorded=recorded) as fd:
                 with os.scandir(fd) as entries:
                     for entry in entries:
                         path = directory / entry.name
                         rel = path.relative_to(root).as_posix()
-                        mode = os.stat(entry.name, dir_fd=fd, follow_symlinks=False).st_mode
+                        info = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                        mode = info.st_mode
                         if stat.S_ISLNK(mode):
                             problems.append(f"{rel}: symlinks are not allowed")
                         elif not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
                             problems.append(f"{rel}: not a regular file or directory")
                         elif _ignored(entry.name):
                             continue
-                        elif stat.S_ISDIR(mode):
-                            pending.append(parts + (entry.name,))
-                        elif rel != MANIFEST:
-                            problem = _path_problem(rel)
-                            if problem:
-                                problems.append(f"{rel!r}: {problem}")
-                            else:
-                                paths.append(path)
+                        else:
+                            entry_parts = parts + (entry.name,)
+                            _record_identity(recorded, entry_parts, info)
+                            if stat.S_ISDIR(mode):
+                                pending.append(entry_parts)
+                            elif rel != MANIFEST:
+                                problem = _path_problem(rel)
+                                if problem:
+                                    problems.append(f"{rel!r}: {problem}")
+                                else:
+                                    paths.append(path)
         except (OSError, ValueError) as e:
             problems.append(f"{directory}: {e}")
     return sorted(paths), sorted(problems)
@@ -145,10 +191,12 @@ def files(root):
 
 
 @contextmanager
-def _regular_file(path, *, dir_fd=None):
+def _regular_file(path, *, dir_fd=None, expected=None):
     """Check before reading; a replaced file or symlink must never be hashed."""
     path = Path(path)
     before = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+    if expected is not None:
+        _check_identity(path, before, expected)
     if not stat.S_ISREG(before.st_mode):
         raise ValueError(f"{path}: not a regular file (symlinks are not allowed)")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -168,18 +216,20 @@ def _regular_file(path, *, dir_fd=None):
 
 
 @contextmanager
-def _regular_file_at(root_fd, relative):
+def _regular_file_at(root_fd, relative, *, recorded=None):
     relative = Path(relative)
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError(f"{relative}: expected a path inside the package")
-    with _directory_parts(root_fd, relative.parts[:-1]) as directory:
-        with _regular_file(relative.name, dir_fd=directory) as handle:
+    with _directory_parts(root_fd, relative.parts[:-1], recorded=recorded) as directory:
+        with _regular_file(relative.name, dir_fd=directory,
+                           expected=_recorded_info(recorded, relative.parts)) as handle:
             yield handle
 
 
-def digest(path, *, root_fd=None):
+def digest(path, *, root_fd=None, recorded=None):
     result = hashlib.sha256()
-    reader = _regular_file(path) if root_fd is None else _regular_file_at(root_fd, path)
+    reader = (_regular_file(path) if root_fd is None
+              else _regular_file_at(root_fd, path, recorded=recorded))
     with reader as handle:
         for chunk in iter(lambda: handle.read(65536), b""):
             result.update(chunk)
@@ -189,11 +239,16 @@ def digest(path, *, root_fd=None):
 def manifest_text(root):
     root = Path(root)
     with _directory_fd(root) as root_fd:
-        paths, problems = _scan(root, root_fd=root_fd)
+        recorded = {}
+        paths, problems = _scan(root, root_fd=root_fd, recorded=recorded)
         if problems:
             raise ValueError("; ".join(problems))
-        return "".join(f"{digest(p.relative_to(root), root_fd=root_fd)}  {p.relative_to(root).as_posix()}\n"
-                       for p in paths)
+        text = "".join(f"{digest(p.relative_to(root), root_fd=root_fd, recorded=recorded)}  "
+                       f"{p.relative_to(root).as_posix()}\n" for p in paths)
+        problems = _verify_recorded(root, root_fd, recorded)
+        if problems:
+            raise ValueError("; ".join(problems))
+        return text
 
 
 def check(copy):
@@ -207,11 +262,12 @@ def check(copy):
 
 
 def _check_opened(copy, root_fd):
-    paths, problems = _scan(copy, root_fd=root_fd)
+    recorded = {}
+    paths, problems = _scan(copy, root_fd=root_fd, recorded=recorded)
     _check_binding(copy, os.fstat(root_fd))
     listed = copy / MANIFEST
     try:
-        with _regular_file_at(root_fd, MANIFEST) as handle:
+        with _regular_file_at(root_fd, MANIFEST, recorded=recorded) as handle:
             lines = handle.read().decode("utf-8").splitlines()
     except (OSError, ValueError) as e:
         return problems + [f"{listed}: cannot read MANIFEST: {e}"]
@@ -231,12 +287,13 @@ def _check_opened(copy, root_fd):
     for path in paths:
         rel = path.relative_to(copy).as_posix()
         try:
-            have[rel] = digest(rel, root_fd=root_fd)
+            have[rel] = digest(rel, root_fd=root_fd, recorded=recorded)
         except (OSError, ValueError) as e:
             problems.append(f"{rel}: cannot read package file: {e}")
     problems += [f"{rel}: edited in the vendored copy" for rel in sorted(want) if rel in have and have[rel] != want[rel]]
     problems += [f"{rel}: missing from the vendored copy" for rel in sorted(set(want) - set(have))]
     problems += [f"{rel}: not part of scan-report-kit" for rel in sorted(set(have) - set(want))]
+    problems += _verify_recorded(copy, root_fd, recorded)
     return problems
 
 
