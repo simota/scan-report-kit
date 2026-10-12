@@ -98,6 +98,11 @@ they are told apart by the label text and by the entry's left rule weight
   and sits in `.tablewrap` so a table wider than the column scrolls inside it
   instead of splitting words. Cells holding short identifiers (B-01, R-01)
   carry `.nowrap` so an ID never breaks at its hyphen.
+- The mobile register keeps its column headers available to assistive
+  technology through visual clipping, and explicit table roles preserve the
+  relationships when CSS presents rows as cards. Finding links expand the
+  destination and move keyboard focus to its detail toggle. Detail titles and
+  actions wrap onto separate lines when space is limited.
 - Dashboard cards (`.cards`): one row of equal columns at any count; two
   columns at 850px and below.
 

@@ -22,12 +22,15 @@ test: ## run offline unit tests
 	@cd "$(REPO)" && PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tests -v
 
 check: test ## tests, then render both samples without PDF
-	@cd "$(REPO)" && out=$$(mktemp -d "$${TMPDIR:-/tmp}/scan-report-kit-check.XXXXXX") && \
+	@set -eu; cd "$(REPO)"; \
+	  out=$$(mktemp -d "$${TMPDIR:-/tmp}/scan-report-kit-check.XXXXXX"); \
+	  trap 'rm -rf "$$out"' EXIT; trap 'exit 1' HUP INT TERM; \
 	  for lang in en ja; do \
-	    s=examples/report.sample$$([ $$lang = ja ] && echo .ja).json; \
+	    s=examples/report.sample.json; \
+	    if [ "$$lang" = ja ]; then s=examples/report.sample.ja.json; fi; \
 	    PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m scan_report_kit $$s --out "$$out/$$lang" --lang $$lang --no-pdf >/dev/null \
-	      || { echo "MISS $$s does not render" >&2; rm -rf "$$out"; exit 1; }; \
-	  done; rm -rf "$$out"; echo "check ok - both samples render"
+	      || { echo "MISS $$s does not render" >&2; exit 1; }; \
+	  done; echo "check ok - both samples render"
 
 demo: ## render the sample (dashboard + report + PDF) into DEMO_OUT
 	@cd "$(REPO)" && PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m scan_report_kit \

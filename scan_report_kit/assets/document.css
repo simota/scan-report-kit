@@ -1,5 +1,5 @@
 /* scan-report-kit document stylesheet: report.html / report.pdf. Design: docs/design.md.
-   __RUNNING_FOOTER__ is replaced by style.document_css() with the report's running footer. */
+   The quoted page footer is filled by style.document_css(). */
 @page{
   size:A4;margin:22mm 22mm 24mm;
   @bottom-left{content:"__RUNNING_FOOTER__";font:7.5pt "Hiragino Sans","Noto Sans CJK JP",sans-serif;color:#5a5a5a}
