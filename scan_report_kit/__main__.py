@@ -38,20 +38,31 @@ def main(argv=None):
             print(f"scan_report_kit: refusing to write {bad}: it exists as a symlink or non-regular file",
                   file=sys.stderr)
             return 2
-        output.write_output(out / "dashboard.html", dashboard)
-        output.write_output(out / "report.html", document)
-        if a.no_pdf:
-            (out / "report.pdf").unlink(missing_ok=True)
-    except OSError as e:
-        print(f"scan_report_kit: cannot write outputs to {out}: {e.strerror or e}", file=sys.stderr)
+        source = Path(a.report).resolve()
+        for name in OUTPUTS:
+            target = out / name
+            if target.resolve() == source or (target.exists() and source.samefile(target)):
+                print(f"scan_report_kit: refusing to overwrite input report {a.report}", file=sys.stderr)
+                return 2
+        # Prepare both linked pages before changing any output, and invalidate
+        # the previous PDF only as part of the same recoverable update.
+        output.write_outputs(out, {"dashboard.html": dashboard, "report.html": document},
+                             remove=("report.pdf",))
+    except (OSError, UnicodeError) as e:
+        print(f"scan_report_kit: cannot write outputs to {out}: {getattr(e, 'strerror', None) or e}", file=sys.stderr)
         return 2
     print(f"wrote {out / 'dashboard.html'}")
     print(f"wrote {out / 'report.html'}")
     if a.no_pdf:
         return 0
     failures = []
-    engine = pdf.to_pdf(out / "report.html", out / "report.pdf", failures,
-                        timeout=pdf.pdf_timeout(len(data["findings"])))
+    try:
+        engine = pdf.to_pdf(out / "report.html", out / "report.pdf", failures,
+                            timeout=pdf.pdf_timeout(len(data["findings"])))
+    except OSError as e:
+        print(f"scan_report_kit: cannot write PDF to {out}: {e.strerror or e}. "
+              "report.html is ready to print.", file=sys.stderr)
+        return 2
     if not engine:
         detail = "; ".join(f"{name} {why}" + (f" [{tail}]" if tail else "") for name, why, tail in failures)
         print("scan_report_kit: " + (f"PDF engine failed: {detail}" if failures else

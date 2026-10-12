@@ -74,11 +74,12 @@ class RenderTests(unittest.TestCase):
 
     def test_register_layout_does_not_leak_to_other_tables(self):
         css = style.dashboard_css()
-        self.assertIn('<table class="register">', report.render_dashboard(report.validate(copy.deepcopy(SAMPLE)), "en"))
+        self.assertIn('<table class="register" role="table">', report.render_dashboard(report.validate(copy.deepcopy(SAMPLE)), "en"))
         self.assertNotRegex(css, r"(?:^|[}\n,])(?:\.register\s)?th:nth-child")
         self.assertNotIn("table-layout:fixed}", css.replace("table.register{table-layout:fixed}", ""))
         self.assertNotRegex(css, r"(?:^|[{}\n,])(?:table|\.register),")
-        self.assertIn("table.register thead{display:none}", css)
+        self.assertNotIn("table.register thead{display:none}", css)
+        self.assertIn("table.register thead{position:absolute;width:1px;height:1px;", css)
         # The narrow register rows stay a grid: as specific as the block rule above it.
         self.assertIn("table.register tr.row{padding:14px;border-bottom:1px solid var(--line);display:grid;", css)
         # Cells wrap between words; only the register breaks anywhere.
@@ -139,20 +140,20 @@ class PdfTests(unittest.TestCase):
         self.assertIn("token=***", failures[0][2])
 
     def test_success_and_stale_pdf_removed(self):
-        chrome = self.fake("chrome", 'for a; do case "$a" in --print-to-pdf=*) printf "%%PDF" > "${a#*=}";; esac; done')
+        chrome = self.fake("chrome", 'for a; do case "$a" in --print-to-pdf=*) printf "%%PDF-1.7\\nfixture\\n%%%%EOF\\n" > "${a#*=}";; esac; done')
         out = self.root / "a.pdf"
         out.write_bytes(b"stale")
         with patch.dict(os.environ, {"CHROME": str(chrome), "PATH": str(chrome.parent)}):
             self.assertEqual(pdf.to_pdf(self.html, out), "chrome")
-        self.assertEqual(out.read_bytes(), b"%PDF")
+        self.assertEqual(out.read_bytes(), b"%PDF-1.7\nfixture\n%%EOF\n")
 
     def test_failed_chrome_pdf_is_discarded_before_weasyprint(self):
         chrome = self.fake("chrome", 'for a; do case "$a" in --print-to-pdf=*) printf partial > "${a#*=}";; esac; done; exit 1')
-        self.fake("weasyprint", 'printf "%%PDF ok" > "$2"')
+        self.fake("weasyprint", 'printf "%%PDF-1.7\\nfixture\\n%%%%EOF\\n" > "$2"')
         out, failures = self.root / "a.pdf", []
         with patch.dict(os.environ, {"CHROME": str(chrome), "PATH": str(chrome.parent)}):
             self.assertEqual(pdf.to_pdf(self.html, out, failures), "weasyprint")
-        self.assertEqual(out.read_bytes(), b"%PDF ok")
+        self.assertEqual(out.read_bytes(), b"%PDF-1.7\nfixture\n%%EOF\n")
         self.assertIn("exited with status 1; its PDF was discarded", failures[0][1])
 
     def test_failed_weasyprint_leaves_no_partial_output(self):
