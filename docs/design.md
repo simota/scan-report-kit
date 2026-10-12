@@ -65,7 +65,10 @@ printable document has no fills behind text except listing highlights.
 Dashboard details use a subtle background tint that follows the selected theme.
 Highlighted source lines use a separate background from that detail tint and
 stronger line-number text, so the marked evidence remains identifiable in both
-dashboard themes and in print.
+dashboard themes and in print. Bold line numbers also identify the marked lines
+when background printing is disabled. In the dashboard, the highlight extends
+across a long source line when it scrolls horizontally; printed excerpts wrap
+within the page width.
 
 | Role | Light | Ratio vs `#fff` | Dark | Ratio vs `#17171a` |
 |---|---|---|---|---|

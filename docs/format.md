@@ -9,7 +9,11 @@ without modifying it, and raises `FormatError` for invalid input. Both
 `lang` argument must be `en` or `ja`, otherwise they raise `FormatError`.
 Text must be valid Unicode without surrogate code points or NUL (U+0000).
 HTML parsers replace NUL characters, so accepting them would change recorded
-evidence when it is read. Required strings
+evidence when it is read. CR and CRLF line endings in text and attributes
+are preserved through HTML parsing. Body text styled to preserve line breaks
+displays LF, CRLF and standalone CR as one line break each without changing
+the recorded text. A nonblank summary also retains its leading and trailing
+whitespace. Required strings
 must contain a non-whitespace character. Unknown keys are ignored and are not
 copied into the dashboard payload, so extensions cannot change built-in labels
 or rendering behavior.
@@ -71,6 +75,15 @@ categories, statuses, severities, confidence, verdicts, action labels and text,
 field labels and text, snippet lines, and reference types, titles and URLs.
 The excluded-record view keeps the recorded status visible alongside the
 exclusion label.
+
+### Markdown copy
+
+The dashboard's copy-for-LLM export escapes Markdown and HTML-like syntax in
+inline recorded text, including labels, IDs, titles and metadata. Line breaks
+in these inline values are flattened to spaces. Body sections and source
+excerpts stay in fenced code blocks so their contents cannot become Markdown
+structure. Reference links preserve query separators and quote URL characters
+that would otherwise close the Markdown link.
 
 ### Line numbers
 

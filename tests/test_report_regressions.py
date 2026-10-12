@@ -28,9 +28,13 @@ class Tags(HTMLParser):
     def __init__(self):
         super().__init__()
         self.tags = []
+        self.text = []
 
     def handle_starttag(self, tag, attrs):
         self.tags.append((tag, dict(attrs)))
+
+    def handle_data(self, text):
+        self.text.append(text)
 
 
 class ReportSecurityTests(unittest.TestCase):
@@ -150,6 +154,63 @@ class ReportSecurityTests(unittest.TestCase):
         parsed.feed(report.render_document(data, "en"))
         self.assertFalse(any(tag in ("img", "script", "tag") for tag, _ in parsed.tags))
         self.assertIn(("a", {"href": 'https://example.org/?q="<tag>'}), parsed.tags)
+
+    def test_multiline_prose_preserves_html_text_and_lone_cr_breaks(self):
+        cases = (
+            ('  First\r\nSecond\rThird & &#13; <tag>\r\n  ', 1),
+            ('First\rSecond', 1),
+            ('First\r\nSecond\nThird', 0),
+            ('\rFirst\r\rSecond\r', 4),
+            ('First\r\r\nSecond', 1),
+            ('First\r<br> & &#13; &#xD; &NewLine; "quoted"', 1),
+        )
+        for text, breaks in cases:
+            data = document(finding(
+                location=text,
+                action={"label": "Action", "text": text},
+                fields=[{"label": "Evidence", "text": text}],
+            ))
+            data["summary"] = text
+            data["labels"] = {"title_col": text}
+            data.update({key: [text] for key in report.LIST_KEYS})
+            for lang in ("en", "ja"):
+                with self.subTest(lang=lang, text=repr(text)):
+                    page = report.render_document(data, lang)
+                    # HTML preprocesses physical newlines before recognizing
+                    # character references. Parse the result to verify both
+                    # textContent and the extra visual breaks, including all
+                    # prose locations and attributes that must contain text.
+                    parsed_source = page.replace("\r\n", "\n").replace("\r", "\n")
+                    prose = re.findall(r'<(?:p|li) class=[\'"](?:lead )?prose[\'"]>(.*?)</(?:p|li)>',
+                                       parsed_source, re.S)
+                    self.assertEqual(len(prose), 7)
+                    for fragment in prose:
+                        parsed = Tags()
+                        parsed.feed(fragment)
+                        self.assertEqual("".join(parsed.text), text)
+                        self.assertEqual([(tag, attrs) for tag, attrs in parsed.tags if tag != "span"],
+                                         [("br", {})] * breaks)
+                        self.assertEqual([attrs for tag, attrs in parsed.tags if tag == "span"],
+                                         [{"hidden": None}] * text.count("\r"))
+                        # Only the original CRs are hidden. Leaving them
+                        # visible would create extra breaks in PDF engines.
+                        self.assertEqual(re.findall(r"<span hidden>(.*?)</span>", fragment, re.S),
+                                         ["&#13;"] * text.count("\r"))
+                    tags = Tags()
+                    tags.feed(parsed_source)
+                    self.assertTrue(any(attrs.get("data-label") == text for _, attrs in tags.tags))
+                    self.assertFalse(any(tag == "tag" for tag, _ in tags.tags))
+                    payload = self.payload(report.render_dashboard(data, lang))
+                    self.assertEqual(payload["summary"], text)
+                    self.assertEqual(payload["findings"][0]["fields"][0]["text"], text)
+
+    def test_blank_document_summary_still_uses_the_missing_summary_label(self):
+        for value in ("", " \r\n\t "):
+            with self.subTest(summary=repr(value)):
+                data = document()
+                data["summary"] = value
+                page = report.render_document(data, "en")
+                self.assertIn('<p class="lead prose">No summary was recorded.</p>', page)
 
 
 class FormatContractTests(unittest.TestCase):

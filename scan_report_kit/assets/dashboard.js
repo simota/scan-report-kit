@@ -152,11 +152,33 @@
     var n = runs.reduce(function (longest, run) { return Math.max(longest, run.length); }, 2) + 1;
     return Array(n + 1).join('`');
   }
-  function oneLine(x) { return String(x).replace(/\s*[\r\n]+\s*/g, ' '); }
+  function oneLine(x) {
+    return String(x).replace(/\s+/g, function (space) { return /[\r\n]/.test(space) ? ' ' : space; });
+  }
+  // Recorded labels and metadata are literal text, including Markdown-looking
+  // punctuation and entity names. Body evidence stays unchanged inside fences.
+  function markdownInline(x) {
+    var text = oneLine(x).replace(/[\\`*_{}\[\]<>#!|~&]/g, function (c) { return '\\' + c; });
+    // Leading indentation is data too. Character references preserve it without
+    // introducing a Markdown code block or an indented nested list.
+    text = text.replace(/^[ \t]+/, function (space) {
+      return space.replace(/[ \t]/g, function (c) { return c === ' ' ? '&#32;' : '&#9;'; });
+    });
+    // A label begins immediately after a list marker in metadata. Escape a
+    // recorded leading marker so it cannot turn that label into a nested list.
+    return text.replace(/^([+-]|[0-9]{1,9}[.)])(?=[ \t])/, function (marker) {
+      return marker.slice(0, -1) + '\\' + marker.slice(-1);
+    });
+  }
+  function markdownUrl(url) {
+    // Autolinks decode HTML entities, and angle brackets terminate their syntax.
+    // Preserve query separators and entity-like text while quoting URL delimiters.
+    return url.replace(/&/g, '&amp;').replace(/</g, '%3C').replace(/>/g, '%3E');
+  }
   function findingMarkdown(f) {
-    var out = ['## ' + oneLine(f.id) + ' · ' + oneLine(f.title), ''];
-    function p(label, value) { if (value) out.push('- ' + label + ': ' + oneLine(value)); }
-    function block(label, value) { if (value) { var fc = fence(value); out.push('', '### ' + oneLine(label), fc + 'text', value, fc); } }
+    var out = ['## ' + markdownInline(f.id) + ' · ' + markdownInline(f.title), ''];
+    function p(label, value) { if (value) out.push('- ' + markdownInline(label) + ': ' + markdownInline(value)); }
+    function block(label, value) { if (value) { var fc = fence(value); out.push('', '### ' + markdownInline(label), fc + 'text', value, fc); } }
     p(L.severity, f.severity); p(L.status, statusText(f)); p(L.confidence, f.confidence); p(L.verdict, f.verdict);
     p(L.category, f.category); p(L.location, f.location);
     if (f.action && f.status === 'Open' && !f.excluded) block(f.action.label, f.action.text);
@@ -169,8 +191,8 @@
       block(L.snippet, lines);
     }
     if ((f.references || []).length) {
-      out.push('', '### ' + L.references);
-      f.references.forEach(function (r) { out.push('- [' + oneLine(r.type || L.source) + '] ' + oneLine(r.title || r.url) + ' <' + r.url + '>'); });
+      out.push('', '### ' + markdownInline(L.references));
+      f.references.forEach(function (r) { out.push('- [' + markdownInline(r.type || L.source) + '] ' + markdownInline(r.title || r.url) + ' <' + markdownUrl(r.url) + '>'); });
     }
     return out.join('\n') + '\n';
   }
@@ -210,6 +232,18 @@
     if (!dt.hidden) fillDetails(dt, f);
     return dt;
   }
+  // Render line endings consistently while keeping every recorded character in
+  // textContent. Hide CR itself; LF or an explicit br supplies the visible break.
+  function proseInto(box, text) {
+    var cr = /\r/g, start = 0, match;
+    while ((match = cr.exec(text))) {
+      box.appendChild(document.createTextNode(text.slice(start, match.index)));
+      box.appendChild(el('span', { hidden: '' }, '\r'));
+      if (text.charAt(match.index + 1) !== '\n') box.appendChild(el('br'));
+      start = match.index + 1;
+    }
+    box.appendChild(document.createTextNode(text.slice(start)));
+  }
   function fillDetails(dt, f) {
     if (dt.firstChild) return;
     var td = el('td', { colspan: 7, role: 'cell' }), dl = el('dl');
@@ -228,7 +262,7 @@
     function field(label, value) {
       dl.appendChild(el('dt', null, label));
       var dd = el('dd');
-      if (value instanceof Node) dd.appendChild(value); else dd.textContent = value;
+      if (value instanceof Node) dd.appendChild(value); else proseInto(dd, value);
       dl.appendChild(dd);
     }
     field(L.location, f.location || L.not_recorded);

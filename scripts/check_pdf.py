@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration check: print both sample reports with a real engine and inspect their text.
+"""Integration check: print sample reports and check text and newline layout.
 
 Requires Chrome/Chromium or the WeasyPrint CLI, plus pdftotext and Japanese fonts.
 These are development tools; the scan_report_kit package remains standard-library only.
@@ -15,11 +15,89 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scan_report_kit import output, pdf, report  # noqa: E402
+
+
+def render_pdf(data, lang, name, directory, expected_engine):
+    html, result = directory / (name + ".html"), directory / (name + ".pdf")
+    output.write_output(html, report.render_document(data, lang))
+    failures = []
+    engine = pdf.to_pdf(html, result, failures, timeout=60)
+    if engine != expected_engine:
+        raise RuntimeError(f"{name}: expected {expected_engine}, got {engine}; failures={failures}")
+    return result
+
+
+def check_newline_positions(bbox, groups):
+    """Compare short marker coordinates; whitespace-stripped text misses this bug."""
+    markers = {marker: [] for group in groups for marker in group}
+    markers.update({"SpaceBefore": [], "SpaceAfter": []})
+    for number, page in enumerate(ET.fromstring(bbox).findall(".//{*}page"), 1):
+        for word in page.findall(".//{*}word"):
+            if word.text in markers:
+                markers[word.text].append((number, float(word.attrib["xMin"]),
+                                           float(word.attrib["yMin"]), float(word.attrib["xMax"])))
+    for group in groups:
+        positions = [markers[marker] for marker in group]
+        if any(len(found) != 1 for found in positions):
+            raise RuntimeError(f"newlines: expected each marker once: {dict(zip(group, positions))}")
+        positions = [found[0] for found in positions]
+        first, second = positions[:2]
+        step = second[2] - first[2]  # The first pair is separated by an ordinary LF.
+        if step <= 1 or any(
+                position[0] != first[0]
+                or abs(position[1] - first[1]) > 0.75
+                or abs(position[2] - first[2] - index * step) > 0.75
+                for index, position in enumerate(positions)):
+            raise RuntimeError(f"newlines: LF, CRLF and CR need equal line spacing: "
+                               f"{dict(zip(group, positions))}")
+
+    # These two metadata values use identical fonts and words. Under normal
+    # whitespace, a recorded CR must separate words just as a space does.
+    before, after = markers["SpaceBefore"], markers["SpaceAfter"]
+    if len(before) != 2 or len(after) != 2:
+        raise RuntimeError(f"newlines: normal-whitespace markers are missing: {before}, {after}")
+    gaps = []
+    order = lambda position: (position[0], position[2], position[1])
+    for left, right in zip(sorted(before, key=order), sorted(after, key=order)):
+        if left[0] != right[0] or abs(left[2] - right[2]) > 0.75:
+            raise RuntimeError(f"newlines: normal-whitespace CR split the line: {left}, {right}")
+        gaps.append(right[1] - left[3])
+    if min(gaps) <= 0.5 or abs(gaps[0] - gaps[1]) > 0.5:
+        raise RuntimeError(f"newlines: normal-whitespace CR changed word spacing: {gaps}")
+
+
+def check_newlines(directory, engine):
+    groups = [
+        ["SummaryStart", "SummaryLf", "SummaryCrLf", "SummaryCr"],
+        ["EvidenceStart", "EvidenceLf", "EvidenceCrLf", "EvidenceCr"],
+    ]
+    texts = [f"{group[0]}\n{group[1]}\r\n{group[2]}\r{group[3]}" for group in groups]
+    data = {
+        "format": "scan-report/1",
+        "meta": {"project": "Newline rendering check", "date": "2026-01-01",
+                 "scope": "SpaceBefore SpaceAfter", "method": "SpaceBefore\rSpaceAfter"},
+        "summary": texts[0],
+        "findings": [{"id": "N-1", "title": "Recorded newline evidence",
+                      "severity": "Info", "status": "Fixed",
+                      "fields": [{"label": "Evidence", "text": texts[1]}]}],
+    }
+    result = render_pdf(data, "en", "newlines", directory, engine)
+    # Keep both readable text and the coordinates even when an assertion fails.
+    for option, suffix in (("-layout", ".txt"), ("-bbox-layout", ".bbox.html")):
+        extracted = subprocess.run(
+            ["pdftotext", option, str(result), "-"], capture_output=True,
+            text=True, check=True, timeout=30,
+        ).stdout
+        output.write_output(directory / ("newlines" + suffix), extracted)
+    check_newline_positions(extracted, groups)
+    print(f"{engine}: summary and evidence render LF, CRLF and CR on equally spaced lines; "
+          "normal-whitespace CR retains a word space")
 
 
 def main(argv=None):
@@ -42,12 +120,7 @@ def main(argv=None):
         for lang in ("en", "ja"):
             sample = ROOT / "examples" / ("report.sample.ja.json" if lang == "ja" else "report.sample.json")
             data = json.loads(sample.read_text(encoding="utf-8"))
-            html, result = directory / (lang + ".html"), directory / (lang + ".pdf")
-            output.write_output(html, report.render_document(data, lang))
-            failures = []
-            engine = pdf.to_pdf(html, result, failures, timeout=60)
-            if engine != args.engine:
-                raise RuntimeError(f"{lang}: expected {args.engine}, got {engine}; failures={failures}")
+            result = render_pdf(data, lang, lang, directory, args.engine)
             extracted = subprocess.run(
                 ["pdftotext", "-layout", str(result), "-"], capture_output=True,
                 text=True, check=True, timeout=30,
@@ -63,8 +136,9 @@ def main(argv=None):
             for text in expected:
                 if re.sub(r"\s+", "", text) not in compact:
                     raise RuntimeError(f"{lang}: PDF text is missing {text!r}")
-            print(f"{engine}: {lang} PDF contains the project, title, footer, summary "
+            print(f"{args.engine}: {lang} PDF contains the project, title, footer, summary "
                   f"and all {len(data['findings'])} findings with their field text")
+        check_newlines(directory, args.engine)
     return 0
 
 
