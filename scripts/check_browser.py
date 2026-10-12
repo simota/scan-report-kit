@@ -31,6 +31,11 @@ RESULT_ID = "scan-report-browser-result"
 MARKUP = '<srk-smoke-injected data-value="<&">literal & text</srk-smoke-injected>'
 SEARCH = "scan-report-browser-search-token"
 VIEWPORTS = {"desktop": (1280, 960), "mobile": (390, 844)}
+VISUAL_LINES = [
+    ["visual-0-start", 0], ["visual-1-lf", 1], ["visual-2-crlf", 2], ["visual-3-cr", 3],
+    ["visual-4-double-cr", 5], ["visual-5-cr-crlf", 7], ["visual-6-last", 8],
+]
+VISUAL_TEXT = "visual-0-start\nvisual-1-lf\r\nvisual-2-crlf\rvisual-3-cr\r\rvisual-4-double-cr\r\r\nvisual-5-cr-crlf\nvisual-6-last\r"
 
 ERROR_CAPTURE = """<script>
 window.__scanBrowserErrors = [];
@@ -42,6 +47,65 @@ window.addEventListener('unhandledrejection', function (e) {
 });
 </script>
 """
+
+VISUAL_LINE_JS = r"""
+window.__scanBrowserLineBreaks = function (element, text, expected) {
+  'use strict';
+  // Text offsets still address the recorded value when a renderer inserts br
+  // elements. Measure a glyph on each short line so wrapping cannot mask a CR.
+  function top(marker) {
+    let offset = text.indexOf(marker);
+    if (offset < 0) throw new Error('missing visual line marker: ' + marker);
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (offset < node.data.length) {
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + 1);
+        return range.getBoundingClientRect().top;
+      }
+      offset -= node.data.length;
+    }
+    throw new Error('visual line marker is absent from the DOM: ' + marker);
+  }
+  const lineHeight = parseFloat(getComputedStyle(element).lineHeight);
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0) throw new Error('unmeasurable prose line height');
+  const first = top(expected[0][0]);
+  return expected.every(([marker, line]) => Math.abs(top(marker) - first - line * lineHeight) <= 1);
+};
+window.__scanBrowserNormalCR = function () {
+  'use strict';
+  const box = document.createElement('div');
+  box.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;font:16px/1.5 serif';
+  const plain = document.createElement('span'), dom = document.createElement('span');
+  plain.textContent = 'aa bb';
+  dom.textContent = 'aa\rbb';
+  // This fixed string exercises HTML character-reference parsing, as the
+  // printable renderer does. It never parses report data as markup.
+  const entity = new DOMParser().parseFromString('<span>aa&#13;bb</span>', 'text/html').body.firstElementChild;
+  for (const node of [plain, dom, entity]) {
+    node.style.cssText = 'display:inline-block;white-space:normal';
+    box.appendChild(node);
+  }
+  document.body.appendChild(box);
+  try {
+    function measure(node) {
+      const bounds = node.getBoundingClientRect(), range = document.createRange();
+      range.setStart(node.firstChild, 3);
+      range.setEnd(node.firstChild, 4);
+      return { width: bounds.width, secondWord: range.getBoundingClientRect().left - bounds.left };
+    }
+    const expected = measure(plain), fromDOM = measure(dom), fromEntity = measure(entity);
+    const equal = actual => Math.abs(actual.width - expected.width) <= 0.1 &&
+      Math.abs(actual.secondWord - expected.secondWord) <= 0.1;
+    return { ok: dom.textContent === 'aa\rbb' && entity.textContent === 'aa\rbb' && equal(fromDOM) && equal(fromEntity),
+      expected, fromDOM, fromEntity };
+  } finally {
+    box.remove();
+  }
+};
+"""
+
 
 SMOKE_JS = r"""
 window.__scanBrowserSmoke = (async function () {
@@ -87,6 +151,9 @@ window.__scanBrowserSmoke = (async function () {
     check(document.documentElement.lang === C.lang, 'document language');
     check(byId('h').textContent === C.project, 'project rendered by JavaScript');
     check(byId('summary').querySelector('p').textContent === C.summary, 'summary whitespace is preserved');
+    const normalCR = window.__scanBrowserNormalCR();
+    metrics.normalCR = normalCR;
+    check(normalCR.ok, 'normal whitespace treats DOM and entity CR as a space');
     check(rows().length === C.included, 'initial included row count');
     check(document.querySelectorAll('#cards .card').length === 4, 'summary cards rendered');
     check(document.querySelectorAll('#lists > section').length === 3, 'runtime completed');
@@ -112,8 +179,11 @@ window.__scanBrowserSmoke = (async function () {
     document.querySelector('#priority a[href="#' + C.firstAnchor + '"]').click();
     check(!byId(C.firstAnchor + '-detail').hidden, 'repeated deep link reopens details');
     check(byId(C.firstAnchor + '-detail').textContent.includes(C.markup), 'special characters remain text');
-    check(Array.from(byId(C.firstAnchor + '-detail').querySelectorAll('dd')).some(node =>
-          node.textContent === C.evidence), 'evidence preserves CR, CRLF, and indentation');
+    const evidence = Array.from(byId(C.firstAnchor + '-detail').querySelectorAll('dd')).find(node =>
+          node.textContent === C.evidence);
+    check(!!evidence, 'evidence preserves CR, CRLF, and indentation');
+    check(window.__scanBrowserLineBreaks(evidence, C.evidence, C.visualLines),
+          'evidence renders LF, CRLF, CR, and consecutive CR on the recorded lines');
     check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
 
     byId('reset').click();
@@ -141,7 +211,7 @@ window.__scanBrowserSmoke = (async function () {
     const root = document.documentElement;
     metrics = { innerWidth: window.innerWidth, clientWidth: root.clientWidth,
       scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth),
-      rowDisplay: getComputedStyle(rows()[0]).display };
+      rowDisplay: getComputedStyle(rows()[0]).display, normalCR };
     check(Math.abs(window.innerWidth - C.width) <= 1, 'requested viewport width');
     check(metrics.rowDisplay === (C.mobile ? 'grid' : 'table-row'), 'responsive register layout');
     check(metrics.scrollWidth <= metrics.clientWidth + 1, 'no page horizontal overflow');
@@ -171,6 +241,11 @@ window.__scanBrowserSmoke = (async function () {
     check(document.documentElement.lang === C.lang, 'document language');
     check(document.querySelector('.project').textContent === C.project, 'project rendered in the document');
     check(document.querySelector('.lead').textContent === C.summary, 'summary whitespace is preserved');
+    const normalCR = window.__scanBrowserNormalCR();
+    metrics.normalCR = normalCR;
+    check(normalCR.ok, 'normal whitespace treats DOM and entity CR as a space');
+    check(window.__scanBrowserLineBreaks(document.querySelector('.lead'), C.summary, C.visualLines),
+          'summary renders LF, CRLF, CR, and consecutive CR on the recorded lines');
     const table = document.querySelector('.index'), head = table.tHead;
     const rows = Array.from(table.tBodies[0].rows);
     check(rows.length === C.included, 'included finding index');
@@ -191,8 +266,11 @@ window.__scanBrowserSmoke = (async function () {
             'mobile index caption spans the card width');
     }
     check(document.getElementById(C.firstAnchor).textContent.includes(C.markup), 'special characters remain text');
-    check(Array.from(document.getElementById(C.firstAnchor).querySelectorAll('.finding-field p')).some(node =>
-          node.textContent === C.evidence), 'evidence preserves CR, CRLF, and indentation');
+    const evidence = Array.from(document.getElementById(C.firstAnchor).querySelectorAll('.finding-field p')).find(node =>
+          node.textContent === C.evidence);
+    check(!!evidence, 'evidence preserves CR, CRLF, and indentation');
+    check(window.__scanBrowserLineBreaks(evidence, C.evidence, C.visualLines),
+          'evidence renders LF, CRLF, CR, and consecutive CR on the recorded lines');
     check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
     const snippet = document.getElementById(C.firstAnchor).querySelector('.snippet');
     const hit = snippet.querySelector('.hit'), normal = snippet.querySelector('span:not(.hit)');
@@ -200,7 +278,8 @@ window.__scanBrowserSmoke = (async function () {
           Number(getComputedStyle(normal.querySelector('b')).fontWeight), 'source highlight has a non-color cue');
     const root = document.documentElement;
     metrics = { innerWidth: window.innerWidth, clientWidth: root.clientWidth,
-      scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth), rowDisplay: getComputedStyle(rows[0]).display };
+      scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth), rowDisplay: getComputedStyle(rows[0]).display,
+      normalCR };
     check(Math.abs(window.innerWidth - C.width) <= 1, 'requested viewport width');
     check(metrics.rowDisplay === (C.mobile ? 'block' : 'table-row'), 'responsive index layout');
     check(metrics.scrollWidth <= metrics.clientWidth + 1, 'no page horizontal overflow');
@@ -227,6 +306,8 @@ window.__scanBrowserPrintSmoke = function () {
   }
   try {
     check(window.matchMedia('print').matches, 'print media is active');
+    result.metrics.normalCRPrint = window.__scanBrowserNormalCR();
+    check(result.metrics.normalCRPrint.ok, 'printed normal whitespace treats DOM and entity CR as a space');
     const finding = document.getElementById(C.firstAnchor + (C.documentView ? '' : '-detail'));
     const snippet = finding.querySelector('.snippet');
     const hit = Array.from(snippet.querySelectorAll('.hit')).find(node => node.textContent.endsWith(C.longSource));
@@ -235,6 +316,14 @@ window.__scanBrowserPrintSmoke = function () {
     check(snippet.scrollWidth <= snippet.clientWidth + 1, 'printed source excerpt has no horizontal clipping');
     check(Number(getComputedStyle(hit.querySelector('b')).fontWeight) >
           Number(getComputedStyle(normal.querySelector('b')).fontWeight), 'printed source highlight has a non-color cue');
+    const evidence = Array.from(finding.querySelectorAll(C.documentView ? '.finding-field p' : 'dd')).find(node =>
+          node.textContent === C.evidence);
+    check(!!evidence && window.__scanBrowserLineBreaks(evidence, C.evidence, C.visualLines),
+          'printed evidence preserves visual newline positions');
+    if (C.documentView) {
+      check(window.__scanBrowserLineBreaks(document.querySelector('.lead'), C.summary, C.visualLines),
+            'printed summary preserves visual newline positions');
+    }
   } catch (error) {
     result.errors.push(String(error.message || error));
   }
@@ -334,9 +423,9 @@ def make_page(lang, view, document_view=False):
     first = data["findings"][0]
     first["title"] += " — " + MARKUP
     first["location"] = "src/" + "long_unbroken_path_" * 12 + ":42"
-    evidence = SEARCH + " </script> " + MARKUP + "\r\n  indented evidence line\rfinal evidence line"
+    evidence = "\r" + SEARCH + " </script> " + MARKUP + "\r\n  indented evidence line\rfinal evidence line\n" + VISUAL_TEXT
     first.setdefault("fields", []).append({"label": "Browser smoke", "text": evidence})
-    data["summary"] = "\n  " + data["summary"] + "\r\nSummary continuation\rFinal summary line  \n"
+    data["summary"] = "\r  " + data["summary"] + "\r\nSummary continuation\rFinal summary line  \n" + VISUAL_TEXT
     snippet = first["snippet"]
     marked_index = snippet["hit"][0] - snippet["start"]
     long_source = snippet["lines"][marked_index] + " # " + "long_source_evidence_" * 32
@@ -347,10 +436,10 @@ def make_page(lang, view, document_view=False):
               "included": 4, "excluded": 1, "sortedIds": ["F-1", "F-2", "F-10", "F-20"],
               "firstId": ids[0], "firstAnchor": report.anchor(0), "excludedAnchor": report.anchor(4),
               "summary": data["summary"], "evidence": evidence, "longSource": long_source,
-              "documentView": document_view}
+              "documentView": document_view, "visualLines": VISUAL_LINES}
     source = DOCUMENT_SMOKE_JS if document_view else SMOKE_JS
     encoded_config = json.dumps(config, ensure_ascii=True).replace("<", "\\u003c")
-    script = source.replace("__CONFIG__", encoded_config, 1) + PRINT_SMOKE_JS.replace("__CONFIG__", encoded_config, 1)
+    script = VISUAL_LINE_JS + source.replace("__CONFIG__", encoded_config, 1) + PRINT_SMOKE_JS.replace("__CONFIG__", encoded_config, 1)
     harness = ('<script type="application/json" id="' + RESULT_ID + '">{"ok":false,"state":"pending"}</script>\n'
                + "<script>\n" + script + "\n</script>\n")
     page = (report.render_document if document_view else report.render_dashboard)(data, lang)

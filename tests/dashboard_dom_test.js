@@ -256,6 +256,27 @@ test('details build lazily, toggle once, and retain expansion after sorting', ()
   assert.ok(h.id('finding-2-detail').textContent.includes(h.data.labels.not_recorded));
 });
 
+test('detail prose preserves recorded newlines and supplies breaks only for lone CR', async () => {
+  const text = '\rfirst\r\nsecond\nthird\rfourth\r\rfifth\r\r\nsixth\r';
+  const h = dashboard('en', { clipboard: 'success', mutate(data) {
+    data.findings[0].fields = [{ label: 'Mixed newline evidence', text }];
+    data.findings[0].location = 'src/first\rsecond\r\nthird';
+  } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  const fields = h.id('finding-1-detail').querySelectorAll('dd');
+  const evidence = fields.find(node => node.textContent === text);
+  assert.ok(evidence, 'body text remains exactly as recorded');
+  assert.equal(evidence.querySelectorAll('br').length, 6);
+  const retained = evidence.querySelectorAll('span[hidden]');
+  assert.equal(retained.length, 8);
+  assert.ok(retained.every(node => node.textContent === '\r'));
+  assert.equal(fields[0].textContent, 'src/first\rsecond\r\nthird');
+  assert.equal(fields[0].querySelectorAll('br').length, 1);
+  h.id('finding-1-detail').querySelector('.copy-finding').click();
+  await settle();
+  assert.ok(h.copied[0].includes('```text\n' + text + '\n```'), 'copy uses the original evidence');
+});
+
 test('copy exports safe fences and complete details with the Clipboard API', async () => {
   const h = dashboard('en', { clipboard: 'success' });
   const button = copyButton(h);

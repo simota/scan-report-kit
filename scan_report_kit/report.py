@@ -289,6 +289,19 @@ def esc(s):
     return html.escape(str(s or "")).replace("\r", "&#13;")
 
 
+def prose_html(text):
+    # Browsers do not treat DOM CRs as line breaks, while PDF engines may
+    # normalize them to LF. Keep each CR in a hidden text node so textContent
+    # stays exact, then display one break using CRLF's LF or an explicit br.
+    parts = []
+    for part in re.split(r"(\r\n?)", str(text or "")):
+        if part.startswith("\r"):
+            parts.append("<span hidden>&#13;</span>" + ("\n" if part == "\r\n" else "<br>"))
+        else:
+            parts.append(esc(part))
+    return "".join(parts)
+
+
 def plural(L, key, n):
     """The label for count n; a `_one` variant carries the singular form."""
     return L[key + "_one" if n == 1 and key + "_one" in L else key].replace("{n}", str(n))
@@ -360,7 +373,7 @@ def render_document(data, lang):
         return esc(text) if str(text or "").strip() else esc(L["none"])
 
     def bullets(items, empty):
-        return ("<ul>" + "".join(f"<li class='prose'>{esc(x)}</li>" for x in items) + "</ul>"
+        return ("<ul>" + "".join(f"<li class='prose'>{prose_html(x)}</li>" for x in items) + "</ul>"
                 if items else f"<p class='small'>{esc(L[empty])}</p>")
 
     meta = "".join(f"<p class='meta-line'><strong>{esc(L[k])}</strong> {esc(m[k])}</p>"
@@ -420,10 +433,10 @@ def render_document(data, lang):
         state = "".join(f"<tr><th scope='row'>{esc(L[k])}</th><td>"
                         + (f"<span class='badge {f['severity']}'>{f['severity']}</span>" if k == "severity" else value(f.get(k)))
                         + "</td></tr>" for k in ("severity", "status", "confidence", "verdict", "category", "location"))
-        action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4><p class='prose'>{esc(f['action'].get('text'))}</p></div>"
+        action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4><p class='prose'>{prose_html(f['action'].get('text'))}</p></div>"
                   if f.get("action") and f["status"] == "Open" and not f.get("excluded") else "")
         fields = "".join(f"<div class='finding-field'><h4>{esc(x['label'])}</h4>"
-                         + (f"<p class='prose'>{esc(x['text'])}</p>" if x.get("text", "").strip()
+                         + (f"<p class='prose'>{prose_html(x['text'])}</p>" if x.get("text", "").strip()
                             else f"<p class='empty-value'>{esc(L['not_recorded'])}</p>") + "</div>"
                          for x in f.get("fields", []))
         snippet = (f"<div class='finding-field'><h4>{esc(L['snippet'])}</h4>{snippet_html(f['snippet'])}</div>"
@@ -448,7 +461,7 @@ def render_document(data, lang):
 <header class="report-header"><p class="kicker">{esc(L['kind'])}</p><h1>{esc(L['title'])}</h1>
 <p class="project">{esc(m['project'])}</p>{meta}</header>
 <main>
-<p class="lead prose">{esc(summary) if summary.strip() else esc(L['no_summary'])}</p>
+<p class="lead prose">{prose_html(summary if summary.strip() else L['no_summary'])}</p>
 <section class="summary-section" id="summary"><h2>{esc(L['summary'])}</h2><p>{esc(headline(data, L))}</p>{metrics}
 <h3 class="limit-heading">{esc(L['limitations'])}</h3><div class="limits">{bullets(data.get('limitations', []), 'limitations_empty')}</div></section>
 <section id="priority-queue"><h2>{esc(L['priority'])}</h2><p class="section-note">{esc(L['priority_note'])}</p>{queue}</section>

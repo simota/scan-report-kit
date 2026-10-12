@@ -232,6 +232,18 @@
     if (!dt.hidden) fillDetails(dt, f);
     return dt;
   }
+  // Render line endings consistently while keeping every recorded character in
+  // textContent. Hide CR itself; LF or an explicit br supplies the visible break.
+  function proseInto(box, text) {
+    var cr = /\r/g, start = 0, match;
+    while ((match = cr.exec(text))) {
+      box.appendChild(document.createTextNode(text.slice(start, match.index)));
+      box.appendChild(el('span', { hidden: '' }, '\r'));
+      if (text.charAt(match.index + 1) !== '\n') box.appendChild(el('br'));
+      start = match.index + 1;
+    }
+    box.appendChild(document.createTextNode(text.slice(start)));
+  }
   function fillDetails(dt, f) {
     if (dt.firstChild) return;
     var td = el('td', { colspan: 7, role: 'cell' }), dl = el('dl');
@@ -250,7 +262,7 @@
     function field(label, value) {
       dl.appendChild(el('dt', null, label));
       var dd = el('dd');
-      if (value instanceof Node) dd.appendChild(value); else dd.textContent = value;
+      if (value instanceof Node) dd.appendChild(value); else proseInto(dd, value);
       dl.appendChild(dd);
     }
     field(L.location, f.location || L.not_recorded);
