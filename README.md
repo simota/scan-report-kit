@@ -74,8 +74,17 @@ old copy if installation fails. If restoration also fails, the diagnostic names
 the preserved recovery directory. `--check` rejects edited/missing/extra files,
 malformed manifests, symlinks and special files. It checks integrity against the
 copy's own manifest; it does not establish that the copy is the latest upstream
-version. A package root that disappears or becomes an unsafe file during the
-check is reported as an integrity failure.
+version. Verification holds directory descriptors and opens each path component
+relative to them without following symlinks. A root or nested directory that is
+replaced during inspection is reported as an integrity failure, and reads stay
+attached to the inspected directories.
+
+The standalone vendoring script requires directory-descriptor support
+(`dir_fd`, `scandir(fd)`, `O_DIRECTORY` and `O_NOFOLLOW`), available on the
+supported Linux and macOS Python versions. On other platforms, including
+Windows, it stops with a clear error before replacing an existing copy.
+This requirement is specific to `scripts/vendor.py`; rendering with the
+standard-library package does not depend on these APIs.
 
 ## Output and PDF behaviour
 

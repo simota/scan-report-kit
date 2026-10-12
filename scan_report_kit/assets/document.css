@@ -118,7 +118,7 @@ html[lang="ja"] .snippet::before{content:"コード " counter(listing);letter-sp
   body{margin:0;padding:8mm 5mm;border:0}
   .meta-line{grid-template-columns:24mm minmax(0,1fr)}
   .lead{margin:2mm 0 4mm}
-  .index,.index tbody,.index tr,.index td{display:block;width:100%}
+  .index,.index caption,.index tbody,.index tr,.index td{display:block;width:100%}
   .index colgroup{display:none}
   /* Keep column headers available when the index becomes a stack of cards. */
   .index thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

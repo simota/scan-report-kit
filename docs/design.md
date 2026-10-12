@@ -105,9 +105,11 @@ they are told apart by the label text and by the entry's left rule weight
   carry `.nowrap` so an ID never breaks at its hyphen.
 - The mobile register in both the dashboard and printable HTML keeps its column headers available to assistive
   technology through visual clipping, and explicit table roles preserve the
-  relationships when CSS presents rows as cards. Dashboard finding links expand the
-  destination and move keyboard focus to its detail toggle. Detail titles and
-  actions wrap onto separate lines when space is limited.
+  relationships when CSS presents rows as cards. The printable index caption
+  spans the card width, so its text wraps naturally on narrow screens.
+  Dashboard finding links expand the destination and move keyboard focus to its
+  detail toggle. Detail titles and actions wrap onto separate lines when space
+  is limited.
 - Dashboard cards (`.cards`): one row of equal columns at any count; two
   columns at 850px and below.
 

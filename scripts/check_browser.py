@@ -180,6 +180,8 @@ window.__scanBrowserSmoke = (async function () {
       const bounds = head.getBoundingClientRect();
       check(bounds.width <= 1 && bounds.height <= 1 && getComputedStyle(head).clipPath !== 'none',
             'mobile index headers are visually clipped');
+      check(Math.abs(table.caption.getBoundingClientRect().width - table.getBoundingClientRect().width) <= 1,
+            'mobile index caption spans the card width');
     }
     check(document.getElementById(C.firstAnchor).textContent.includes(C.markup), 'special characters remain text');
     check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
