@@ -178,3 +178,91 @@ button,.button,.filters select,.filters input{border-radius:2px}
 @media(max-width:480px){main{padding:16px 12px}.masthead{align-items:flex-start;flex-direction:column;gap:12px}.tools{width:100%}.tools .button{flex:1}.card{padding:14px}.card .n{font-size:28px}.panel{padding:16px}.section-head{display:block}.filters{grid-template-columns:1fr 1fr;gap:10px}.filters label:first-child,.filters .search{grid-column:1/-1}.filter-bottom{align-items:flex-start;flex-direction:column}.scope-meta{grid-template-columns:1fr;gap:2px}.scope-meta dd{margin-bottom:8px}.priority-top{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 @media print{html:root,html:root[data-theme]{color-scheme:light;--bg:#f6f5f1;--panel:#fff;--text:#1b1b1b;--muted:#5a5a5a;--line:#dcd9d2;--soft:#ecebe5;--high:#8a1c1c;--medium:#7a4800;--low:#24476e;--info:#5a5a5a;--accent:#1f3f66;--tint:#efede6;--mark:#e2d7b4;--warn:#f6f5f1;--warn-line:#1b1b1b;--serif:"Hiragino Mincho ProN","Noto Serif CJK JP","Yu Mincho",Georgia,serif;--sans:system-ui,-apple-system,"Hiragino Sans","Noto Sans CJK JP","Noto Sans JP",sans-serif}body{background:white}.tools,.chart-section,.skip,.copy-finding,.toggle-label{display:none}.filters-panel{border:0;padding:0;box-shadow:none}.filters-panel *{display:none}.filters-panel .filter-bottom,.filters-panel #result-count{display:block}main{padding:0;max-width:none}.panel,.card{break-inside:avoid}.tablewrap{overflow:visible}.snippet{white-space:pre-wrap;overflow:visible}.snippet span{width:auto;min-width:0}.footer{margin-top:16px}}
+/* Application shell: sticky app bar, contents sidebar with severity facets, sticky
+   register filters. Same inks, rules and type as above; no new surfaces. */
+:root{--appbar-h:56px}
+html{scroll-padding-top:calc(var(--appbar-h) + 150px)}
+.appbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1.5px solid var(--text)}
+.appbar-in{max-width:1320px;margin:auto;padding:0 28px;height:var(--appbar-h);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.appbar .brand{display:flex;align-items:baseline;gap:10px;min-width:0;white-space:nowrap;overflow:hidden}
+.appbar-project{font-family:var(--serif);font-size:14px;letter-spacing:0;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.appbar .tools{flex-wrap:nowrap;flex-shrink:0}
+.appbar .tools .button,.appbar .tools button{font-size:13px;padding:5px 10px}
+.shell{max-width:1320px;margin:auto;padding:0 28px;display:grid;grid-template-columns:196px minmax(0,1fr);gap:44px}
+.shell>main{max-width:none;margin:0;padding:28px 0 48px;min-width:0}
+.sidebar{position:sticky;top:var(--appbar-h);align-self:start;max-height:calc(100vh - var(--appbar-h));overflow-y:auto;padding:30px 0 24px;font-family:var(--sans);font-size:13px}
+.nav-title{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);margin:0 0 8px}
+.nav-links{list-style:none;margin:0 0 26px;padding:0}
+.nav-links a{display:block;padding:5px 0 5px 12px;border-left:1px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.nav-links a:hover{color:var(--text)}
+.nav-links a[aria-current]{color:var(--text);border-left:2px solid var(--text);padding-left:11px;font-weight:700}
+.facets{margin-bottom:26px}
+.facet{display:flex;justify-content:space-between;align-items:baseline;width:100%;border:0;border-left:1px solid var(--line);border-radius:0;background:transparent;padding:5px 2px 5px 12px;text-align:left}
+.facet:hover{background:var(--tint)}
+.facet[aria-pressed="true"]{background:var(--tint);border-left:2px solid var(--text);padding-left:11px}
+.facet-name{font-size:11px;font-weight:750;letter-spacing:.1em}
+.facet-n{font-variant-numeric:tabular-nums;color:var(--text)}
+.keys{margin:0;color:var(--muted);font-size:12px}
+.keys dd{margin:4px 0}
+kbd{display:inline-block;min-width:1.6em;text-align:center;font:11px/1.6 ui-monospace,Menlo,monospace;color:var(--text);border:1px solid var(--line);border-bottom-width:2px;border-radius:2px;padding:0 4px}
+#overview .hero{margin-top:6px}
+#overview:focus,#priority-section:focus,#coverage:focus,#findings:focus,#lists:focus{outline:0}
+.filters-panel{position:sticky;top:var(--appbar-h);z-index:5;background:var(--bg);border-top:0;border-bottom:1px solid var(--line);padding:12px 0}
+.filters{grid-template-columns:minmax(0,2.2fr) repeat(5,minmax(0,1fr));gap:10px}
+.filters .search{grid-column:auto;order:-1}
+.filters select,.filters input{padding:6px 8px}
+.filter-bottom{margin-top:8px}
+.filter-bottom button{font-size:12px;padding:3px 10px}
+/* The row holding keyboard focus reads as the current record. */
+table.register th:nth-child(1){width:8%}
+table.register th:nth-child(2){width:8%}
+table.register th:nth-child(3){width:12%}
+table.register th:nth-child(4){width:10%}
+table.register th:nth-child(5){width:9%}
+table.register th:nth-child(6){width:35%}
+table.register th:nth-child(7){width:18%}
+th,td{padding:12px 10px}
+tr.row:focus-within>td{background:var(--tint)}
+tr.row:focus-within>td:first-child{box-shadow:inset 2px 0 0 var(--text)}
+@media(max-width:1099px){
+  html{scroll-padding-top:calc(var(--appbar-h) + 56px)}
+  .shell{display:block;padding:0 18px}
+  .sidebar{position:sticky;z-index:9;top:var(--appbar-h);max-height:none;overflow-x:auto;overflow-y:hidden;padding:0;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -18px;padding:0 18px}
+  .sidebar .nav-title,.facets,.keys{display:none}
+  .nav-links{display:flex;gap:18px;margin:0;white-space:nowrap}
+  .nav-links a,.nav-links a[aria-current]{border-left:0;border-bottom:2px solid transparent;padding:10px 0 8px}
+  .nav-links a[aria-current]{border-bottom-color:var(--text)}
+  .filters-panel{position:static}
+  .filters{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .filters .search{grid-column:1/-1}
+}
+@media(max-width:850px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.appbar-in{padding:0 18px}}
+@media(max-width:480px){.shell{padding:0 12px}.sidebar{margin:0 -12px;padding:0 12px}.appbar-in{padding:0 12px;gap:10px}.appbar .brand>span:first-child{display:none}.appbar .tools{width:auto}.appbar .tools .button{flex:none}}
+@media print{html{scroll-padding-top:0}.appbar{position:static;border-bottom:1.5px solid var(--text)}.sidebar{display:none}.shell{display:block;padding:0;max-width:none}.shell>main{padding:0}.filters-panel{position:static}tr.row:focus-within>td{background:none;box-shadow:none}}
+/* Table layout: short metadata columns take fixed widths so the finding title
+   gets the remaining measure; titles avoid a one-character last line. */
+@media(min-width:851px){
+  table.register th:nth-child(1){width:72px}
+  table.register th:nth-child(2){width:76px}
+  table.register th:nth-child(3){width:96px}
+  table.register th:nth-child(4){width:90px}
+  table.register th:nth-child(5){width:84px}
+  table.register th:nth-child(6){width:auto}
+  table.register th:nth-child(7){width:150px}
+}
+@media(min-width:1100px){
+  /* The pinned region labels what scrolls: filters, then the column heads. */
+  .filters-panel{display:flex;align-items:flex-end;gap:16px}
+  .filters-panel .filters{flex:1;min-width:0}
+  .filters-panel .filter-bottom{flex-direction:column;align-items:flex-end;gap:4px;margin:0;flex-shrink:0}
+  #findings .tablewrap{overflow:visible}
+  table.register thead th{position:sticky;z-index:4;top:calc(var(--appbar-h) + var(--filters-h,80px));background:var(--bg);border-bottom:0;box-shadow:inset 0 -1px 0 var(--text)}
+}
+.finding-toggle{text-wrap:pretty}
+/* Card layout: the focused record is one region, not one tint per cell. */
+@media(max-width:850px){
+  tr.row:focus-within>td{background:transparent}
+  tr.row:focus-within>td:first-child{box-shadow:none}
+  tr.row:focus-within{background:var(--tint);box-shadow:inset 2px 0 0 var(--text)}
+}
+@media print{table.register thead th{position:static;box-shadow:none}}

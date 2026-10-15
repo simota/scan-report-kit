@@ -39,11 +39,21 @@
   document.title = L.dashboard_title + ' - ' + D.meta.project;
   byId('h').textContent = D.meta.project;
   byId('meta').textContent = [D.meta.date, D.meta.assessor].filter(Boolean).join(' · ');
+  byId('appbar-project').textContent = D.meta.project;
   document.querySelectorAll('[data-l]').forEach(function (e) { e.textContent = L[e.getAttribute('data-l')]; });
+  byId('nav').setAttribute('aria-label', L.contents);
+  // Storage is a per-viewer convenience: it can be absent or throw (private
+  // windows, blocked site data), and the page then follows the OS theme.
+  var THEME_KEY = 'scan-report-kit.theme';
+  try {
+    var saved = window.localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+  } catch (e) { /* follow the operating-system preference */ }
   byId('theme').onclick = function () {
     var root = document.documentElement;
     var dark = root.dataset.theme ? root.dataset.theme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
     root.dataset.theme = dark ? 'light' : 'dark';
+    try { window.localStorage.setItem(THEME_KEY, root.dataset.theme); } catch (e) { /* not remembered */ }
   };
 
   var summary = byId('summary');
@@ -145,6 +155,23 @@
     q.value = '';
   }
   byId('reset').onclick = function () { reset(); draw(); };
+
+  // Sidebar facets: included counts per severity; each one filters the
+  // register to that severity and a second press clears it.
+  var sevCount = count(F, 'severity'), facetButtons = SEV.map(function (s) {
+    var b = el('button', { type: 'button', 'class': 'facet', 'data-sev': s, 'aria-controls': 'rows', 'aria-pressed': 'false' });
+    b.appendChild(el('span', { 'class': 'facet-name ' + s }, s));
+    b.appendChild(el('span', { 'class': 'facet-n' }, String(sevCount[s] || 0)));
+    b.onclick = function () {
+      var on = b.getAttribute('aria-pressed') === 'true';
+      byId('f-scope').value = 'included';
+      byId('f-sev').value = on ? '' : s;
+      draw();
+      byId('findings').scrollIntoView();
+    };
+    byId('facets').appendChild(b);
+    return b;
+  });
 
   // A code fence longer than any backtick run in the text it wraps.
   function fence(text) {
@@ -315,6 +342,9 @@
     if (v('f-sort') === 'priority') shown.sort(byPriority);
     else shown.sort(function (a, b) { return idOrder.compare(a.id, b.id); });
     byId('result-count').textContent = fmt(L.showing, { shown: shown.length, total: pool.length });
+    facetButtons.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(scope === 'included' && v('f-sev') === b.getAttribute('data-sev')));
+    });
     if (!shown.length) {
       var empty = el('tr', { role: 'row' });
       empty.appendChild(el('td', { colspan: 7, 'class': 'empty', role: 'cell' }, pool.length ? L.no_matches : L.no_records));
@@ -375,6 +405,52 @@
   window.addEventListener('hashchange', openHash);
   draw();
   if (window.location.hash) openHash();
+
+  // Keyboard: "/" searches, j/k step through the visible findings (Enter on
+  // the focused title toggles its details), Escape clears the search box.
+  document.addEventListener('keydown', function (e) {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+    var t = e.target, typing = t && t.closest && t.closest('input,select,textarea');
+    if (typing) {
+      if (e.key === 'Escape' && t === q && q.value) { q.value = ''; draw(); }
+      return;
+    }
+    if (e.key === '/') {
+      e.preventDefault();
+      q.focus();
+    } else if (e.key === 'j' || e.key === 'k') {
+      var toggles = rowsShown(), current = document.activeElement && document.activeElement.closest('tr.row');
+      if (!toggles.length) return;
+      var at = toggles.findIndex(function (b) { return b.closest('tr.row') === current; });
+      var next = at < 0 ? 0 : Math.min(toggles.length - 1, Math.max(0, at + (e.key === 'j' ? 1 : -1)));
+      e.preventDefault();
+      toggles[next].focus();
+      toggles[next].closest('tr.row').scrollIntoView({ block: 'nearest' });
+    }
+  });
+  function rowsShown() { return Array.from(byId('rows').querySelectorAll('button.finding-toggle')); }
+
+  // The register's column heads pin below the filter bar, whose height
+  // depends on the language and the viewport.
+  if (window.ResizeObserver) {
+    new window.ResizeObserver(function (entries) {
+      byId('findings').style.setProperty('--filters-h', entries[0].target.offsetHeight + 'px');
+    }).observe(document.querySelector('.filters-panel'));
+  }
+
+  // Mark the section in view in the sidebar contents.
+  var navLinks = Array.from(byId('nav').querySelectorAll('a[href^="#"]'));
+  if (window.IntersectionObserver) {
+    var visible = new Map();
+    var spy = new window.IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { visible.set(en.target.id, en.isIntersecting); });
+      var first = navLinks.find(function (a) { return visible.get(a.getAttribute('href').slice(1)); });
+      navLinks.forEach(function (a) {
+        if (a === first) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current');
+      });
+    }, { rootMargin: '-35% 0px -60% 0px' });
+    navLinks.forEach(function (a) { var s = byId(a.getAttribute('href').slice(1)); if (s) spy.observe(s); });
+  }
 
   ['decisions', 'next_steps', 'checked_ok'].forEach(function (k) {
     var p = el('section', { 'class': 'panel' });
