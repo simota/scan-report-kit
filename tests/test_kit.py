@@ -112,6 +112,21 @@ class RenderTests(unittest.TestCase):
 
 
 @unittest.skipIf(os.name == "nt", "POSIX shell fixture")
+class ShellScopeTests(unittest.TestCase):
+    def test_application_shell_rules_apply_only_to_the_kit_dashboard(self):
+        # Consumers inline dashboard_css() into their own page structure; the
+        # shell's sticky regions and column widths must not reach those pages.
+        import re
+        css = style.dashboard_css()
+        shell = re.sub(r"/\*.*?\*/", "", css[css.index("/* Application shell:"):], flags=re.S)
+        selectors = [sel.strip() for group in re.findall(r"(?:(?<=[{}])|^)([^{}@]+)\{[^{}]*\}", shell, re.M)
+                     for sel in group.split(",")]
+        self.assertTrue(selectors)
+        unscoped = [sel for sel in selectors if not sel.startswith((".app-shell ", "html.app-shell", ":root"))]
+        self.assertEqual(unscoped, [])
+        self.assertIn('<html lang="en" class="app-shell">', report.render_dashboard(copy.deepcopy(SAMPLE), "en"))
+
+
 class PdfTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

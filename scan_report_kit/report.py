@@ -479,7 +479,7 @@ def render_document(data, lang):
 
 
 DASHBOARD = """<!doctype html>
-<html lang="__LANG__">
+<html lang="__LANG__" class="app-shell">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

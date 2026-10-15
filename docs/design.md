@@ -121,6 +121,9 @@ they are told apart by the label text and by the entry's left rule weight
   use `text-wrap: pretty`. From 1100px the column heads pin below the pinned
   filter bar, so the pinned region names the columns that scroll beneath it;
   the filter bar puts its count and reset beside the controls to stay one row.
+  Every application-shell rule is scoped to `html.app-shell`, which only
+  `report.render_dashboard()` sets: consumers that inline `dashboard_css()`
+  into their own page structure keep their layout.
   In the card layout the focused record is tinted as one region. Every
   other table keeps automatic layout and its header row, wraps between words,
   and sits in `.tablewrap` so a table wider than the column scrolls inside it
