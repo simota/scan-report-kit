@@ -111,6 +111,7 @@ function dashboard(lang = 'en', options = {}) {
   const window = {
     isSecureContext: options.clipboard !== undefined,
     matchMedia: () => ({ matches: Boolean(options.dark) }),
+    localStorage: options.localStorage,
     addEventListener(type, listener) { (listeners[type] ||= []).push(listener); },
     location: {}
   };
@@ -449,6 +450,64 @@ test('theme switches from the operating-system preference and then the explicit 
     h.id('theme').click();
     assert.equal(h.document.documentElement.dataset.theme, dark ? 'dark' : 'light');
   }
+});
+
+test('severity facets count included records, filter the register, and clear on a second press', () => {
+  const h = dashboard();
+  const facets = h.id('facets').querySelectorAll('button.facet');
+  assert.deepEqual(facets.map(b => b.textContent), ['High3', 'Medium1', 'Low1', 'Info0']);
+  h.change('f-scope', 'excluded');
+  facets[0].click();
+  assert.equal(h.id('f-scope').value, 'included');
+  assert.deepEqual(h.ids(), ['F-10', 'F-3', 'F-1']);
+  assert.equal(facets[0].getAttribute('aria-pressed'), 'true');
+  assert.equal(h.id('findings').scrolled, true);
+  facets[0].click();
+  assert.equal(h.id('f-sev').value, '');
+  assert.equal(facets[0].getAttribute('aria-pressed'), 'false');
+  h.change('f-sev', 'Low');
+  assert.equal(facets[2].getAttribute('aria-pressed'), 'true');
+});
+
+test('keyboard shortcuts search, step through visible findings, and ignore typing', () => {
+  const h = dashboard();
+  const key = (k, target = h.document.body, extra = {}) => {
+    const event = { key: k, target, preventDefault() { this.prevented = true; }, ...extra };
+    for (const listener of h.document.listeners.keydown) listener(event);
+    return event;
+  };
+  assert.equal(key('/').prevented, true);
+  assert.equal(h.document.activeElement, h.id('f-q'));
+  const toggle = anchor => h.id(anchor).querySelector('.finding-toggle');
+  key('j');
+  assert.equal(h.document.activeElement, toggle('finding-1'));
+  key('j', h.document.activeElement);
+  assert.equal(h.document.activeElement, toggle('finding-6'));
+  key('k', h.document.activeElement);
+  assert.equal(h.document.activeElement, toggle('finding-1'));
+  key('k', h.document.activeElement);
+  assert.equal(h.document.activeElement, toggle('finding-1'));
+  assert.equal(key('j', h.document.body, { metaKey: true }).prevented, undefined);
+  h.search('first');
+  assert.equal(key('j', h.id('f-q')).prevented, undefined);
+  key('Escape', h.id('f-q'));
+  assert.equal(h.id('f-q').value, '');
+  assert.equal(h.rows().length, 5);
+});
+
+test('the theme choice is remembered and storage failures fall back to the system theme', () => {
+  const store = new Map();
+  const localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const first = dashboard('en', { localStorage });
+  first.id('theme').click();
+  assert.equal(store.get('scan-report-kit.theme'), 'dark');
+  const second = dashboard('en', { localStorage });
+  assert.equal(second.document.documentElement.dataset.theme, 'dark');
+  const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+  const third = dashboard('en', { localStorage: blocked });
+  assert.equal(third.document.documentElement.dataset.theme, undefined);
+  third.id('theme').click();
+  assert.equal(third.document.documentElement.dataset.theme, 'dark');
 });
 
 (async () => {

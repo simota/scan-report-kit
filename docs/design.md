@@ -98,10 +98,30 @@ they are told apart by the label text and by the entry's left rule weight
   source excerpts "Listing n" by counters.
 - Title page: report type in small caps, title, project, a metadata table, then
   the executive summary set as an *Abstract* block between two rules.
-- Dashboard: one centred column (max 1320px, room for the 7-column register), the same serif headings and
-  booktabs register; filters and controls stay sans and compact.
+- Dashboard: an application shell within 1320px — a sticky app bar (report kind,
+  project, printable-report link, theme) ruled off by the ink line; a sticky
+  contents sidebar (sections with the one in view marked, severity facets with
+  included counts, keyboard keys) beside one content column; the same serif
+  headings and booktabs register. The register's filter bar stays in view while
+  the register scrolls. Below 1100px the sidebar becomes a horizontal contents
+  strip under the app bar, the facets and keys are dropped (the filters remain)
+  and the filter bar scrolls with the page. Shell chrome is rules and type
+  only — no new fills, shadows or icons; the facet in use and the row holding
+  keyboard focus take the detail tint and a 2px ink rule. Filters and controls
+  stay sans and compact. The theme choice is remembered per viewer in browser
+  storage when available.
+- Dashboard keys: `/` focuses search, `j`/`k` move focus through the visible
+  findings, Enter on a title shows or hides its details, Escape clears the
+  search. Keys are ignored while typing in a control or with a modifier.
 - Dashboard tables: the findings register is `table.register` (fixed 7
-  columns, cards on narrow screens, long paths may break anywhere). Every
+  columns, cards on narrow screens, long paths may break anywhere). In the
+  table layout the five short metadata columns and the category take fixed
+  widths and the finding title takes the rest (ground: `inspected` — titles
+  wrapped to a one-character line when the columns shared percentages); titles
+  use `text-wrap: pretty`. From 1100px the column heads pin below the pinned
+  filter bar, so the pinned region names the columns that scroll beneath it;
+  the filter bar puts its count and reset beside the controls to stay one row.
+  In the card layout the focused record is tinted as one region. Every
   other table keeps automatic layout and its header row, wraps between words,
   and sits in `.tablewrap` so a table wider than the column scrolls inside it
   instead of splitting words. Cells holding short identifiers (B-01, R-01)

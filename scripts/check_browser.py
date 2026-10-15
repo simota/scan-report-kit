@@ -157,6 +157,17 @@ window.__scanBrowserSmoke = (async function () {
     check(rows().length === C.included, 'initial included row count');
     check(document.querySelectorAll('#cards .card').length === 4, 'summary cards rendered');
     check(document.querySelectorAll('#lists > section').length === 3, 'runtime completed');
+    check(byId('appbar-project').textContent === C.project, 'app bar names the project');
+    check(getComputedStyle(document.querySelector('.appbar')).position === 'sticky' &&
+          getComputedStyle(byId('nav')).position === 'sticky', 'app bar and contents stay in view');
+    check(getComputedStyle(byId('facets').parentElement).display === (C.mobile ? 'none' : 'block'),
+          'severity facets appear beside the content on wide screens only');
+    const facet = byId('facets').querySelector('button.facet[data-sev="High"]');
+    facet.click();
+    check(rows().length > 0 && rows().every(row => row.querySelector('.badge').textContent === 'High') &&
+          facet.getAttribute('aria-pressed') === 'true', 'severity facet filters the register');
+    facet.click();
+    check(byId('f-sev').value === '' && rows().length === C.included, 'second facet press clears the filter');
 
     select('f-sort', 'id');
     check(JSON.stringify(ids()) === JSON.stringify(C.sortedIds), 'natural ID order');
@@ -206,6 +217,25 @@ window.__scanBrowserSmoke = (async function () {
             Number(getComputedStyle(normal.querySelector('b')).fontWeight), mode + ' source highlight has a non-color cue');
     }
     document.documentElement.dataset.theme = 'light';
+    const focusRow = rows()[1];
+    focusRow.querySelector('.finding-toggle').focus();
+    if (C.mobile) {
+      check(background(focusRow) !== background(focusRow.parentElement) &&
+            Array.from(focusRow.cells).every(cell => getComputedStyle(cell).backgroundColor === 'rgba(0, 0, 0, 0)'),
+            'mobile focused record is one tinted region');
+    } else {
+      const head = document.querySelector('table.register thead th');
+      check(head.getBoundingClientRect().width < rows()[0].cells[5].getBoundingClientRect().width / 4,
+            'finding titles take the widest register column');
+      document.documentElement.style.scrollBehavior = 'auto';
+      window.scrollTo(0, window.scrollY + byId(C.firstAnchor + '-detail').getBoundingClientRect().top - 120);
+      await pause(50);
+      const pinned = head.getBoundingClientRect(), bar = document.querySelector('.filters-panel').getBoundingClientRect();
+      check(Math.abs(pinned.top - bar.bottom) <= 1 &&
+            head.contains(document.elementFromPoint(pinned.left + 4, pinned.top + pinned.height / 2)),
+            'register column heads stay visible below the pinned filters');
+      document.documentElement.style.scrollBehavior = '';
+    }
     window.scrollTo(0, 0);
     await pause(50);
     const root = document.documentElement;

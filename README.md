@@ -48,6 +48,10 @@ parsing or UTF-8 encoding. Existing reports remain intact after invalid input.
 CR and CRLF line endings in report text survive HTML parsing, and a nonblank
 summary keeps its leading and trailing whitespace.
 
+The dashboard reads like an application: a sticky app bar, a contents
+sidebar that marks the section in view and filters by severity, a filter bar
+that stays in view over the register, keyboard keys (`/` search, `j`/`k` move,
+Enter details, Escape clear) and a remembered theme choice.
 The dashboard sorts IDs naturally (`F-2` before `F-10`) and searches source
 excerpts and references as well as finding text. Excluded records retain their
 original status while staying outside the summary counts.

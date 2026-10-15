@@ -65,6 +65,8 @@ LABELS = {
         "view_all": "View all findings", "queue_more": "Showing {shown} of {total} open findings.",
         "source_note": "Generated from the recorded report data; this page changes nothing.",
         "no_script": "This dashboard needs JavaScript. Read the printable report instead:",
+        "contents": "Contents", "records": "Decisions and next steps", "shortcuts": "Keyboard",
+        "key_search": "Search", "key_move": "Next / previous finding", "key_toggle": "Show or hide details",
     },
     "ja": {
         "kind": "診断", "title": "診断報告書", "dashboard_title": "診断結果", "running_footer": "診断報告書",
@@ -104,6 +106,8 @@ LABELS = {
         "view_all": "すべての指摘を見る", "queue_more": "未対応{total}件中{shown}件を表示しています。",
         "source_note": "記録されたレポートデータから生成しています。このページは何も変更しません。",
         "no_script": "このダッシュボードには JavaScript が必要です。印刷用報告書をご覧ください:",
+        "contents": "目次", "records": "判断事項と次の手順", "shortcuts": "キー操作",
+        "key_search": "検索", "key_move": "次・前の指摘", "key_toggle": "詳細の表示・非表示",
     },
 }
 LABEL_KEYS = set().union(*(labels.keys() for labels in LABELS.values()))
@@ -486,13 +490,20 @@ __CSS__
 </head>
 <body>
 <a class="skip" href="#findings" data-l="jump"></a>
+<header class="appbar"><div class="appbar-in"><span class="brand"><span data-l="kind"></span><span class="appbar-project" id="appbar-project"></span></span><div class="tools"><a class="button" href="report.html" data-l="report_link"></a><button id="theme" type="button" data-l="theme"></button></div></div></header>
+<div class="shell">
+<nav class="sidebar" id="nav"><h2 class="nav-title" data-l="contents"></h2><ol class="nav-links">
+<li><a href="#overview" data-l="summary"></a></li><li><a href="#priority-section" data-l="priority"></a></li><li><a href="#coverage" data-l="coverage"></a></li><li><a href="#findings" data-l="register"></a></li><li><a href="#lists" data-l="records"></a></li>
+</ol><div class="facets"><h2 class="nav-title" data-l="severity"></h2><div id="facets"></div></div>
+<dl class="keys"><dt data-l="shortcuts" class="nav-title"></dt><dd><kbd>/</kbd> <span data-l="key_search"></span></dd><dd><kbd>j</kbd> <kbd>k</kbd> <span data-l="key_move"></span></dd><dd><kbd>Enter</kbd> <span data-l="key_toggle"></span></dd></dl></nav>
 <main>
-<header class="masthead"><span class="brand" data-l="kind"></span><div class="tools"><a class="button" href="report.html" data-l="report_link"></a><button id="theme" type="button" data-l="theme"></button></div></header>
+<section id="overview" tabindex="-1" aria-labelledby="h">
 <div class="hero"><div><div class="eyebrow" data-l="dashboard_title"></div><h1 id="h"></h1><div class="meta" id="meta"></div></div></div>
 <div class="summary-banner" id="summary"></div>
 <div class="cards" id="cards"></div>
-<section aria-labelledby="priority-heading"><div class="section-head"><div><h2 id="priority-heading" data-l="priority"></h2><p data-l="priority_note"></p></div><a href="#findings" data-l="view_all"></a></div><div class="priority-list" id="priority"></div><p class="report-note" id="queue-note"></p></section>
-<details class="panel coverage" id="coverage" open><summary><span data-l="coverage"></span><span class="small" id="coverage-count"></span></summary><p data-l="coverage_note"></p><dl class="scope-meta" id="scope-meta"></dl><div class="coverage-columns"><div id="perspectives"></div><div><h3 data-l="limitations"></h3><div id="limitations"></div></div></div></details>
+</section>
+<section id="priority-section" tabindex="-1" aria-labelledby="priority-heading"><div class="section-head"><div><h2 id="priority-heading" data-l="priority"></h2><p data-l="priority_note"></p></div><a href="#findings" data-l="view_all"></a></div><div class="priority-list" id="priority"></div><p class="report-note" id="queue-note"></p></section>
+<details class="panel coverage" id="coverage" tabindex="-1" open><summary><span data-l="coverage"></span><span class="small" id="coverage-count"></span></summary><p data-l="coverage_note"></p><dl class="scope-meta" id="scope-meta"></dl><div class="coverage-columns"><div id="perspectives"></div><div><h3 data-l="limitations"></h3><div id="limitations"></div></div></div></details>
 <details class="chart-section"><summary data-l="overview"></summary><p class="section-note" data-l="count_basis"></p><div class="grid"><div class="panel"><h3 data-l="by_severity"></h3><div id="c-sev"></div></div><div class="panel"><h3 data-l="by_category"></h3><div id="c-cat"></div></div><div class="panel"><h3 data-l="by_status"></h3><div id="c-status"></div></div></div></details>
 <section id="findings" tabindex="-1" aria-labelledby="findings-heading"><div class="section-head"><div><h2 id="findings-heading" data-l="register"></h2><p data-l="register_note"></p></div></div>
 <div class="panel filters-panel"><div class="filters">
@@ -500,9 +511,10 @@ __CSS__
 <label class="search"><span data-l="search"></span><input id="f-q" type="search"></label><label><span data-l="sort"></span><select id="f-sort"></select></label>
 </div><div class="filter-bottom"><p class="result-count" id="result-count" aria-live="polite"></p><button id="reset" type="button" data-l="reset"></button></div></div>
 <div class="tablewrap"><table class="register" role="table"><thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">ID</th><th scope="col" role="columnheader" data-l="severity"></th><th scope="col" role="columnheader" data-l="confidence"></th><th scope="col" role="columnheader" data-l="status"></th><th scope="col" role="columnheader" data-l="verdict"></th><th scope="col" role="columnheader" data-l="title_col"></th><th scope="col" role="columnheader" data-l="category"></th></tr></thead><tbody id="rows" role="rowgroup"></tbody></table></div></section>
-<div class="lists" id="lists"></div><footer class="footer" data-l="source_note"></footer>
+<div class="lists" id="lists" tabindex="-1"></div><footer class="footer" data-l="source_note"></footer>
 <noscript><p>__NOSCRIPT__ <a href="report.html">__REPORT__</a></p></noscript>
 </main>
+</div>
 <script id="data" type="application/json">__DATA__</script>
 <script>
 __JS__
