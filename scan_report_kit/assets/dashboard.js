@@ -419,9 +419,13 @@
       e.preventDefault();
       q.focus();
     } else if (e.key === 'j' || e.key === 'k') {
-      var toggles = rowsShown(), current = document.activeElement && document.activeElement.closest('tr.row');
+      var toggles = rowsShown(), active = document.activeElement;
       if (!toggles.length) return;
-      var at = toggles.findIndex(function (b) { return b.closest('tr.row') === current; });
+      // Focus inside an open detail row (copy, link) counts as its finding.
+      var at = toggles.findIndex(function (b) {
+        var row = b.closest('tr.row');
+        return row.contains(active) || byId(row.id + '-detail').contains(active);
+      });
       var next = at < 0 ? 0 : Math.min(toggles.length - 1, Math.max(0, at + (e.key === 'j' ? 1 : -1)));
       e.preventDefault();
       toggles[next].focus();

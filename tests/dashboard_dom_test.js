@@ -487,6 +487,17 @@ test('keyboard shortcuts search, step through visible findings, and ignore typin
   assert.equal(h.document.activeElement, toggle('finding-1'));
   key('k', h.document.activeElement);
   assert.equal(h.document.activeElement, toggle('finding-1'));
+  // Focus inside an expanded detail row steps from that finding. Compare row
+  // ids: a failed assertion on DOM nodes formats the whole cyclic tree.
+  const focusedRow = () => h.document.activeElement.closest('tr.row').id;
+  const copy = () => h.id('finding-6-detail').querySelector('button.copy-finding');
+  toggle('finding-6').click();
+  copy().focus();
+  key('j', h.document.activeElement);
+  assert.equal(focusedRow(), 'finding-3');
+  copy().focus();
+  key('k', h.document.activeElement);
+  assert.equal(focusedRow(), 'finding-1');
   assert.equal(key('j', h.document.body, { metaKey: true }).prevented, undefined);
   h.search('first');
   assert.equal(key('j', h.id('f-q')).prevented, undefined);
