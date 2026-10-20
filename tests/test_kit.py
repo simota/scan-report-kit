@@ -89,7 +89,9 @@ class RenderTests(unittest.TestCase):
         # Any number of cards shares one row, two columns on narrow screens.
         self.assertIn(".cards{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)", css)
         self.assertIn(".cards{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}", css)
-        self.assertIn("@media print{html:root,html:root[data-theme]{color-scheme:light;", css)
+        # Print stays light: the reset must outrank the OS dark-theme rule,
+        # :root:not([data-theme="light"]), whether or not a theme is saved.
+        self.assertIn('@media print{html:root:not([data-theme="light"]),html:root[data-theme]{color-scheme:light;', css)
 
     def test_running_footer_is_a_css_string(self):
         css = style.document_css('A "quoted" \\ footer')

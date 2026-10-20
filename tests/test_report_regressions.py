@@ -238,7 +238,9 @@ class FormatContractTests(unittest.TestCase):
 
     def test_invalid_urls_raise_format_errors_with_the_reference_location(self):
         urls = (None, 123, "", "javascript:alert(1)", "data:text/html,test", "//example.org", "https:/example.org",
-                "https://[::1", "https://[invalid]", "https://user@", "https://:443", "https://example.org:abc",
+                "https://[::1", "https://[invalid]", "https://[v1.fe]/",
+                "https://[1.2.3.4]/", "https://[::1%25]/", "https://[example.org]/", "https://[::1]x/",
+                "https://[::1]x:80/", "https://user@[::1]x/", "https://user@", "https://:443", "https://example.org:abc",
                 "https://example.org:65536", "https://example.org:-1", "https://example.org/\nnext",
                 "https://example.org/\rnext", "https://example.org/\tnext", " https://example.org",
                 "https://example.org/path with space", "https://example.org/\x00", "https://example.org/\x7f",

@@ -234,6 +234,11 @@ window.__scanBrowserSmoke = (async function () {
       check(Math.abs(pinned.top - bar.bottom) <= 1 &&
             head.contains(document.elementFromPoint(pinned.left + 4, pinned.top + pinned.height / 2)),
             'register column heads stay visible below the pinned filters');
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await pause(100);
+      const current = byId('nav').querySelector('a[aria-current]');
+      check(window.scrollY > 0 && !!current && current.getAttribute('href') === '#lists',
+            'contents mark the last section at the end of the page');
       document.documentElement.style.scrollBehavior = '';
     }
     window.scrollTo(0, 0);
@@ -336,6 +341,19 @@ window.__scanBrowserPrintSmoke = function () {
   }
   try {
     check(window.matchMedia('print').matches, 'print media is active');
+    check(window.matchMedia('(prefers-color-scheme: dark)').matches, 'print runs with a dark OS theme');
+    if (!C.documentView) {
+      // Check with no saved theme (following the OS) and with each saved one.
+      const root = document.documentElement, saved = root.dataset.theme, ink = 'rgb(27, 27, 27)';
+      const inks = [undefined, 'dark', 'light'].map(mode => {
+        if (mode) root.dataset.theme = mode; else delete root.dataset.theme;
+        return [getComputedStyle(document.body).color, getComputedStyle(document.querySelector('table.register th')).color];
+      });
+      if (saved) root.dataset.theme = saved; else delete root.dataset.theme;
+      result.metrics.printInk = inks;
+      check(inks.every(pair => pair[0] === ink && pair[1] === ink),
+            'printed dashboard uses light-theme ink under a dark OS theme');
+    }
     result.metrics.normalCRPrint = window.__scanBrowserNormalCR();
     check(result.metrics.normalCRPrint.ok, 'printed normal whitespace treats DOM and entity CR as a space');
     const finding = document.getElementById(C.firstAnchor + (C.documentView ? '' : '-detail'));
@@ -527,14 +545,16 @@ def run_case(chrome, directory, lang, view, timeout, document_view=False):
             if not isinstance(rendered, str):
                 raise RuntimeError(f"Chrome did not return the live DOM: {evaluated}")
             dom = "<!DOCTYPE html>\n" + rendered
-            cdp.call("Emulation.setEmulatedMedia", {"media": "print"}, session)
+            # Print with the OS in dark mode: the printed page must stay light.
+            cdp.call("Emulation.setEmulatedMedia", {"media": "print", "features": [
+                {"name": "prefers-color-scheme", "value": "dark"}]}, session)
             printed = cdp.call("Runtime.evaluate", {"expression":
                 "window.__scanBrowserPrintSmoke(); document.documentElement.outerHTML",
                 "returnByValue": True}, session)
             rendered = printed.get("result", {}).get("value")
             if not isinstance(rendered, str):
                 raise RuntimeError(f"Chrome did not complete the print checks: {printed}")
-            cdp.call("Emulation.setEmulatedMedia", {"media": "screen"}, session)
+            cdp.call("Emulation.setEmulatedMedia", {"media": "screen", "features": []}, session)
             dom = "<!DOCTYPE html>\n" + rendered
             layout = cdp.call("Page.getLayoutMetrics", session=session)
             size = layout.get("cssContentSize") or layout["contentSize"]

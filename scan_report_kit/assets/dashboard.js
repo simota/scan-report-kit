@@ -419,9 +419,13 @@
       e.preventDefault();
       q.focus();
     } else if (e.key === 'j' || e.key === 'k') {
-      var toggles = rowsShown(), current = document.activeElement && document.activeElement.closest('tr.row');
+      var toggles = rowsShown(), active = document.activeElement;
       if (!toggles.length) return;
-      var at = toggles.findIndex(function (b) { return b.closest('tr.row') === current; });
+      // Focus inside an open detail row (copy, link) counts as its finding.
+      var at = toggles.findIndex(function (b) {
+        var row = b.closest('tr.row');
+        return row.contains(active) || byId(row.id + '-detail').contains(active);
+      });
       var next = at < 0 ? 0 : Math.min(toggles.length - 1, Math.max(0, at + (e.key === 'j' ? 1 : -1)));
       e.preventDefault();
       toggles[next].focus();
@@ -438,18 +442,28 @@
     }).observe(document.querySelector('.filters-panel'));
   }
 
-  // Mark the section in view in the sidebar contents.
+  // Mark the section in view in the sidebar contents. The short last section
+  // never reaches the observed band, so the bottom of the page marks it.
   var navLinks = Array.from(byId('nav').querySelectorAll('a[href^="#"]'));
   if (window.IntersectionObserver) {
-    var visible = new Map();
-    var spy = new window.IntersectionObserver(function (entries) {
-      entries.forEach(function (en) { visible.set(en.target.id, en.isIntersecting); });
-      var first = navLinks.find(function (a) { return visible.get(a.getAttribute('href').slice(1)); });
+    var visible = new Map(), atEnd = false;
+    var pageEnd = function () {
+      return window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1;
+    };
+    var markSection = function () {
+      atEnd = pageEnd();
+      var first = atEnd ? navLinks[navLinks.length - 1]
+        : navLinks.find(function (a) { return visible.get(a.getAttribute('href').slice(1)); });
       navLinks.forEach(function (a) {
         if (a === first) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current');
       });
+    };
+    var spy = new window.IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { visible.set(en.target.id, en.isIntersecting); });
+      markSection();
     }, { rootMargin: '-35% 0px -60% 0px' });
     navLinks.forEach(function (a) { var s = byId(a.getAttribute('href').slice(1)); if (s) spy.observe(s); });
+    window.addEventListener('scroll', function () { if (pageEnd() !== atEnd) markSection(); }, { passive: true });
   }
 
   ['decisions', 'next_steps', 'checked_ok'].forEach(function (k) {
