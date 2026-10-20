@@ -234,6 +234,11 @@ window.__scanBrowserSmoke = (async function () {
       check(Math.abs(pinned.top - bar.bottom) <= 1 &&
             head.contains(document.elementFromPoint(pinned.left + 4, pinned.top + pinned.height / 2)),
             'register column heads stay visible below the pinned filters');
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await pause(100);
+      const current = byId('nav').querySelector('a[aria-current]');
+      check(window.scrollY > 0 && !!current && current.getAttribute('href') === '#lists',
+            'contents mark the last section at the end of the page');
       document.documentElement.style.scrollBehavior = '';
     }
     window.scrollTo(0, 0);
