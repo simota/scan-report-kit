@@ -69,7 +69,9 @@ def _stop(proc):
     def stop_group(sig):
         try:
             os.killpg(proc.pid, sig)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # macOS reports EPERM, not ESRCH, while the group's remaining
+            # members are exiting; either way nothing is left to signal.
             pass
 
     if grouped:

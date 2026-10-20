@@ -65,6 +65,16 @@ class PdfRegressionTests(unittest.TestCase):
         with patch.object(os, "killpg"):
             self.assertEqual(pdf._stop(proc), 1)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX process groups")
+    def test_stop_tolerates_a_group_that_can_no_longer_be_signalled(self):
+        # macOS killpg fails with EPERM while the group's last members exit.
+        for error in (ProcessLookupError, PermissionError):
+            with self.subTest(error=error.__name__):
+                proc = Mock(pid=12345, returncode=0)
+                proc.poll.return_value = 0
+                with patch.object(os, "killpg", side_effect=error(1, "gone")):
+                    self.assertEqual(pdf._stop(proc), 0)
+
     @unittest.skipUnless(sys.platform.startswith("linux") and Path("/proc/self/status").is_file(),
                          "Linux /proc process inspection")
     def test_timeout_stops_child_renderers_for_both_engines(self):
