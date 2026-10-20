@@ -64,7 +64,7 @@ rules when reading untrusted JSON themselves.
 | `action` | no | `{"label", "text"}`: the next action for an open finding (e.g. "Fix now" / "Verify first"). |
 | `fields` | no | Ordered body sections: `[{"label", "text"}]` — impact, fix, evidence, whatever the scan records. |
 | `snippet` | no | `{"start": first line number, "hit": [first, last], "lines": ["…"]}`. Each string in `lines` holds one source line without line breaks. See line numbers below; redact secrets before writing it. |
-| `references` | no | `[{"type", "title", "url"}]`; `url` must use http(s), have a nonempty host and, when a nonempty port is supplied, a valid numeric port. Whitespace, control characters and backslashes must not appear literally in a URL. Host names also reject forbidden delimiters and malformed percent encodings; internationalized domains, IPv6 and localhost remain supported. These are structural checks, not DNS resolution or full IDNA validation. `type` and `title` are optional strings. |
+| `references` | no | `[{"type", "title", "url"}]`; `url` must use http(s), have a nonempty host and, when a nonempty port is supplied, a valid numeric port. Whitespace, control characters and backslashes must not appear literally in a URL. Host names also reject forbidden delimiters and malformed percent encodings; internationalized domains, IPv6 and localhost remain supported. A bracketed host must be an IPv6 address, optionally with a `%25`-encoded zone. These are structural checks, not DNS resolution or full IDNA validation. `type` and `title` are optional strings. |
 
 Ordering: open before closed, then High → Info; recorded order breaks ties.
 Counts cover non-excluded findings only.

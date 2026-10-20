@@ -5,6 +5,7 @@ the dashboard runtime come from style.py so every scan shares one look.
 """
 
 import html
+import ipaddress
 import json
 import re
 from datetime import date
@@ -168,6 +169,10 @@ def http_url(value, where):
                 decoded = unquote(host, encoding="utf-8", errors="strict")
                 bracketed = parts.netloc.rsplit("@", 1)[-1].startswith("[")
                 normalized = normalize("NFKC", decoded)
+                # Older Python releases accept any bracketed text as a host.
+                # Browsers only accept an IPv6 literal there, so check it here.
+                if bracketed:
+                    ipaddress.IPv6Address(decoded)
                 forbidden = "#/<>?@[\\]^|\ufffd" + ("" if bracketed else ":%")
                 valid = not any(char.isspace() or ord(char) < 32 or 127 <= ord(char) < 160
                                 or char in forbidden for char in decoded + normalized)
