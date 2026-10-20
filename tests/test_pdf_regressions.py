@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import signal
 import stat
 import sys
 import tempfile
@@ -74,6 +75,16 @@ class PdfRegressionTests(unittest.TestCase):
                 proc.poll.return_value = 0
                 with patch.object(os, "killpg", side_effect=error(1, "gone")):
                     self.assertEqual(pdf._stop(proc), 0)
+                proc.send_signal.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX process groups")
+    def test_stop_signals_a_running_leader_when_its_group_refuses(self):
+        proc = Mock(pid=12345, returncode=-signal.SIGTERM)
+        proc.poll.return_value = None
+        with patch.object(os, "killpg", side_effect=PermissionError(1, "refused")):
+            self.assertIsNone(pdf._stop(proc))
+        self.assertEqual([c.args[0] for c in proc.send_signal.call_args_list], [signal.SIGTERM, signal.SIGKILL])
+        proc.wait.assert_called_once_with(timeout=10)
 
     @unittest.skipUnless(sys.platform.startswith("linux") and Path("/proc/self/status").is_file(),
                          "Linux /proc process inspection")
