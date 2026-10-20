@@ -55,6 +55,9 @@ Enter details, Escape clear) and a remembered theme choice.
 The dashboard sorts IDs naturally (`F-2` before `F-10`) and searches source
 excerpts and references as well as finding text. Excluded records retain their
 original status while staying outside the summary counts.
+Finding body sections may name a group and carry a table: the dashboard shows
+groups as tabs, the printable report as headed subsections with tables
+(`docs/format.md`).
 Copy-for-LLM keeps recorded inline Markdown syntax literal and body evidence
 in fenced blocks. Source highlights cover long lines when scrolling; bold line
 numbers keep marked evidence identifiable when printing without backgrounds.

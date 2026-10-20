@@ -202,14 +202,36 @@
     // Preserve query separators and entity-like text while quoting URL delimiters.
     return url.replace(/&/g, '&amp;').replace(/</g, '%3C').replace(/>/g, '%3E');
   }
+  // Fields without a group, then each group in order of first appearance.
+  function fieldGroups(fields) {
+    var groups = [{ name: null, items: [] }];
+    fields.forEach(function (x) {
+      var name = x.group === undefined ? null : x.group;
+      var g = groups.find(function (y) { return y.name === name; });
+      if (!g) groups.push(g = { name: name, items: [] });
+      g.items.push(x);
+    });
+    return groups.filter(function (g) { return g.items.length; });
+  }
+  // A field's text, then its table one row per line, cells joined by " | ".
+  function fieldPlain(x) {
+    var lines = x.text ? [x.text] : [];
+    if (x.rows) [x.columns].concat(x.rows).forEach(function (row) {
+      if (row) lines.push(row.map(oneLine).join(' | '));
+    });
+    return lines.join('\n');
+  }
   function findingMarkdown(f) {
     var out = ['## ' + markdownInline(f.id) + ' · ' + markdownInline(f.title), ''];
     function p(label, value) { if (value) out.push('- ' + markdownInline(label) + ': ' + markdownInline(value)); }
-    function block(label, value) { if (value) { var fc = fence(value); out.push('', '### ' + markdownInline(label), fc + 'text', value, fc); } }
+    function block(label, value, level) { if (value) { var fc = fence(value); out.push('', (level || '###') + ' ' + markdownInline(label), fc + 'text', value, fc); } }
     p(L.severity, f.severity); p(L.status, statusText(f)); p(L.confidence, f.confidence); p(L.verdict, f.verdict);
     p(L.category, f.category); p(L.location, f.location);
     if (f.action && f.status === 'Open' && !f.excluded) block(f.action.label, f.action.text);
-    (f.fields || []).forEach(function (x) { block(x.label, x.text); });
+    fieldGroups(f.fields || []).forEach(function (g) {
+      if (g.name !== null) out.push('', '### ' + markdownInline(g.name));
+      g.items.forEach(function (x) { block(x.label, fieldPlain(x), g.name === null ? '###' : '####'); });
+    });
     if (f.snippet) {
       var lines = f.snippet.lines.map(function (text, i) {
         var n = f.snippet.start + i;
@@ -286,14 +308,30 @@
       if (f.action.text) guidance.appendChild(el('p', null, f.action.text));
       td.appendChild(guidance);
     }
-    function field(label, value) {
-      dl.appendChild(el('dt', null, label));
+    function field(label, value, into) {
+      (into || dl).appendChild(el('dt', null, label));
       var dd = el('dd');
       if (value instanceof Node) dd.appendChild(value); else proseInto(dd, value);
-      dl.appendChild(dd);
+      (into || dl).appendChild(dd);
+    }
+    function fieldValue(x) {
+      if (!x.rows) return x.text || L.not_recorded;
+      var box = el('div');
+      if (x.text) { var lead = el('p', { 'class': 'field-lead' }); proseInto(lead, x.text); box.appendChild(lead); }
+      box.appendChild(fieldTable(x));
+      return box;
     }
     field(L.location, f.location || L.not_recorded);
-    (f.fields || []).forEach(function (x) { field(x.label, x.text || L.not_recorded); });
+    var groups = fieldGroups(f.fields || []), named = groups.filter(function (g) { return g.name !== null; });
+    groups.forEach(function (g) {
+      // One group needs no tabs; its fields read as part of the list.
+      if (g.name === null || named.length < 2) g.items.forEach(function (x) { field(x.label, fieldValue(x)); });
+    });
+    td.appendChild(dl);
+    if (named.length > 1) {
+      td.appendChild(fieldTabs(f, named, function (x, into) { field(x.label, fieldValue(x), into); }));
+      dl = el('dl');
+    }
     if (f.snippet) {
       var pre = el('pre', { 'class': 'snippet' });
       f.snippet.lines.forEach(function (text, i) {
@@ -314,8 +352,63 @@
       });
       field(L.references, ul);
     }
-    td.appendChild(dl);
+    if (dl.firstChild) td.appendChild(dl);
     dt.appendChild(td);
+  }
+  function fieldTable(x) {
+    var table = el('table', { 'class': 'field-table' }), body = el('tbody');
+    function cell(tag, text, attrs) { var c = el(tag, attrs); proseInto(c, text); return c; }
+    if (x.columns) {
+      var head = el('thead'), tr = el('tr');
+      x.columns.forEach(function (text) { tr.appendChild(cell('th', text, { scope: 'col' })); });
+      head.appendChild(tr);
+      table.appendChild(head);
+    }
+    x.rows.forEach(function (row) {
+      var tr = el('tr');
+      row.forEach(function (text, i) { tr.appendChild(i ? cell('td', text) : cell('th', text, { scope: 'row' })); });
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    return table;
+  }
+  // Groups as tabs: arrow keys, Home and End move between them (WAI-ARIA tabs).
+  // Each panel keeps a heading, hidden on screen, so print shows every group.
+  function fieldTabs(f, groups, fill) {
+    var box = el('div', { 'class': 'field-groups' });
+    var list = el('div', { 'class': 'field-tabs', role: 'tablist', 'aria-label': f.id + ' · ' + f.title });
+    var tabs = [], panels = [];
+    function select(i, focus) {
+      tabs.forEach(function (tab, j) {
+        tab.setAttribute('aria-selected', String(i === j));
+        tab.setAttribute('tabindex', i === j ? '0' : '-1');
+        panels[j].hidden = i !== j;
+      });
+      if (focus) tabs[i].focus();
+    }
+    groups.forEach(function (g, i) {
+      var id = f.anchor + '-group-' + (i + 1), tab = el('button', { type: 'button', role: 'tab', id: id + '-tab', 'aria-controls': id }, g.name);
+      var panel = el('div', { 'class': 'field-panel', role: 'tabpanel', id: id, 'aria-labelledby': id + '-tab', tabindex: '0' }), pdl = el('dl');
+      panel.appendChild(el('h4', null, g.name));
+      g.items.forEach(function (x) { fill(x, pdl); });
+      panel.appendChild(pdl);
+      tab.onclick = function (e) { e.stopPropagation(); select(i, false); };
+      tabs.push(tab);
+      panels.push(panel);
+      list.appendChild(tab);
+    });
+    list.onkeydown = function (e) {
+      var i = tabs.indexOf(document.activeElement), n = tabs.length;
+      var to = { ArrowRight: i + 1, ArrowLeft: i - 1 + n, Home: 0, End: n - 1 }[e.key];
+      if (i < 0 || to === undefined) return;
+      e.preventDefault();
+      e.stopPropagation();
+      select(to % n, true);
+    };
+    select(0, false);
+    box.appendChild(list);
+    panels.forEach(function (panel) { box.appendChild(panel); });
+    return box;
   }
 
   var searchCache = new Map();
@@ -323,7 +416,7 @@
     if (searchCache.has(f)) return searchCache.get(f);
     var parts = [f.id, f.title, f.location, f.category, statusText(f), f.severity, f.confidence, f.verdict];
     if (f.action) parts.push(f.action.label, f.action.text);
-    (f.fields || []).forEach(function (x) { parts.push(x.label, x.text); });
+    (f.fields || []).forEach(function (x) { parts.push(x.group, x.label, fieldPlain(x)); });
     if (f.snippet) parts.push(f.snippet.lines.join('\n'));
     (f.references || []).forEach(function (r) { parts.push(r.type, r.title, r.url); });
     var text = parts.filter(Boolean).join('\n').toLowerCase();

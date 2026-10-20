@@ -521,6 +521,71 @@ test('the theme choice is remembered and storage failures fall back to the syste
   assert.equal(third.document.documentElement.dataset.theme, 'dark');
 });
 
+test('grouped fields become tabs with tables, and copy and search cover every group', async () => {
+  const h = dashboard('en', { clipboard: 'success', mutate(data) {
+    data.findings[0].fields = [
+      { label: 'Ungrouped marker', text: 'shown above the tabs' },
+      { label: 'Opportunity', text: 'overview_unique_token', group: 'Overview' },
+      { label: 'Facts', group: 'Overview', rows: [['Effort', 'S'], ['Surface', 'Product UI']] },
+      { label: 'Rules', text: 'Lead <b>', group: 'Brand', columns: ['ID', 'Rule'], rows: [['VO-02', 'calm_rule_token\nsecond']] }
+    ];
+  } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  const detail = h.id('finding-1-detail');
+  const tabs = detail.querySelectorAll('button[role="tab"]');
+  assert.deepEqual(tabs.map(tab => tab.textContent), ['Overview', 'Brand']);
+  const panels = detail.querySelectorAll('div[role="tabpanel"]');
+  assert.deepEqual(panels.map(panel => panel.hidden), [false, true]);
+  assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
+  assert.equal(tabs[1].getAttribute('tabindex'), '-1');
+  assert.equal(tabs[1].getAttribute('aria-controls'), panels[1].id);
+  assert.equal(panels[1].getAttribute('aria-labelledby'), tabs[1].id);
+  // Ungrouped fields stay in the list above the tabs.
+  assert.ok(detail.querySelector('dl').textContent.includes('shown above the tabs'));
+  assert.ok(!detail.querySelector('dl').textContent.includes('overview_unique_token'));
+  const facts = panels[0].querySelector('table.field-table');
+  assert.deepEqual(facts.querySelectorAll('th').map(th => [th.getAttribute('scope'), th.textContent]), [['row', 'Effort'], ['row', 'Surface']]);
+  tabs[1].click();
+  assert.deepEqual(panels.map(panel => panel.hidden), [true, false]);
+  const rules = panels[1].querySelector('table.field-table');
+  assert.deepEqual(rules.querySelector('thead').querySelectorAll('th').map(th => th.textContent), ['ID', 'Rule']);
+  assert.equal(rules.querySelector('td').textContent, 'calm_rule_token\nsecond');
+  assert.equal(panels[1].querySelector('p').textContent, 'Lead <b>');
+  // Arrow keys wrap between tabs and move focus; Home and End reach the ends.
+  const list = detail.querySelector('div[role="tablist"]');
+  const key = name => { const e = { key: name, preventDefault() { e.prevented = true; }, stopPropagation() {} }; list.onkeydown(e); return e; };
+  tabs[1].focus();
+  assert.ok(key('ArrowRight').prevented);
+  assert.equal(h.document.activeElement, tabs[0]);
+  assert.deepEqual(panels.map(panel => panel.hidden), [false, true]);
+  key('End');
+  assert.equal(h.document.activeElement, tabs[1]);
+  key('ArrowLeft');
+  assert.equal(h.document.activeElement, tabs[0]);
+  assert.equal(key('a').prevented, undefined);
+  detail.querySelector('.copy-finding').click();
+  await settle();
+  const text = h.copied[0];
+  assert.ok(text.indexOf('### Ungrouped marker') < text.indexOf('### Overview'));
+  assert.ok(text.includes('### Overview\n\n#### Opportunity\n```text\noverview_unique_token\n```'));
+  assert.ok(text.includes('#### Facts\n```text\nEffort | S\nSurface | Product UI\n```'));
+  assert.ok(text.includes('### Brand\n\n#### Rules\n```text\nLead <b>\nID | Rule\nVO-02 | calm_rule_token second\n```'));
+  for (const term of ['calm_rule_token', 'Product UI', 'Brand']) {
+    h.search(term);
+    assert.deepEqual(h.ids(), [h.data.findings[0].id], term);
+  }
+});
+
+test('a single group reads as part of the detail list, without tabs', () => {
+  const h = dashboard('en', { mutate(data) {
+    data.findings[0].fields = [{ label: 'Only', text: 'single_group_token', group: 'Overview' }];
+  } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  const detail = h.id('finding-1-detail');
+  assert.equal(detail.querySelectorAll('button[role="tab"]').length, 0);
+  assert.ok(detail.querySelector('dl').textContent.includes('single_group_token'));
+});
+
 (async () => {
   for (const { name, run } of tests) {
     await run();

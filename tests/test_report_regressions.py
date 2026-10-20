@@ -289,6 +289,21 @@ class FormatContractTests(unittest.TestCase):
                     self.assertEqual(payload["findings"][0]["references"][0]["url"], url)
                     self.assertEqual(data, original)
 
+    def test_field_groups_and_tables_reject_malformed_layouts(self):
+        for change, location in (({"group": ""}, r"fields\[0\]\.group"), ({"group": " "}, r"fields\[0\]\.group"),
+                                 ({"group": "a\nb"}, r"fields\[0\]\.group"), ({"group": 1}, r"fields\[0\]\.group"),
+                                 ({"columns": ["a"]}, r"fields\[0\]\.rows: required"),
+                                 ({"columns": [], "rows": [["a"]]}, r"fields\[0\]\.columns"),
+                                 ({"columns": ["a", 1], "rows": [["a", "b"]]}, r"fields\[0\]\.columns\[1\]"),
+                                 ({"rows": []}, r"fields\[0\]\.rows"), ({"rows": "a"}, r"fields\[0\]\.rows"),
+                                 ({"rows": [[]]}, r"fields\[0\]\.rows\[0\]"),
+                                 ({"rows": [["a", "b"], ["c"]]}, r"fields\[0\]\.rows\[1\]: expected 2 cells"),
+                                 ({"columns": ["a", "b"], "rows": [["c"]]}, r"fields\[0\]\.rows\[0\]: expected 2 cells"),
+                                 ({"rows": [["a", None]]}, r"fields\[0\]\.rows\[0\]\[1\]"),
+                                 ({"rows": [["a\x00"]]}, r"fields\[0\]\.rows\[0\]\[0\]")):
+            with self.subTest(change=change):
+                self.assert_bad(lambda data: data["findings"][0].update(fields=[{"label": "L", **change}]), location)
+
     def test_snippet_rejects_invalid_and_inexact_line_numbers(self):
         for change in ({"start": True}, {"start": 0}, {"start": -1}, {"start": 1.0},
                        {"start": report.MAX_LINE_NUMBER + 1}, {"hit": [False, 1]}, {"hit": [1, 1.0]},
@@ -391,6 +406,41 @@ class DocumentAccessibilityTests(unittest.TestCase):
                 self.assertTrue(all(attrs.get("scope") == "col" for attrs in headers))
                 self.assertEqual(sum(tag == "tr" for tag, _ in parsed.tags), 3)
                 self.assertEqual(sum(tag == "td" for tag, _ in parsed.tags), 8)
+
+
+class FieldLayoutTests(unittest.TestCase):
+    FIELDS = [{"label": "Opportunity", "text": "Lead text", "group": "Overview"},
+              {"label": "Ungrouped", "text": "Always first"},
+              {"label": "Rules", "group": "Brand", "columns": ["ID", "Rule <b>"], "rows": [["VO-02", "Calm & polite"]]},
+              {"label": "Facts", "group": "Overview", "rows": [["Effort", "S"], ["Surface", "Product UI"]]}]
+
+    def test_document_sets_ungrouped_fields_first_then_each_group_with_its_tables(self):
+        page = report.render_document(document(finding(fields=self.FIELDS)), "en")
+        start = page.index("<article")
+        card = page[start:page.index("</article>", start)]
+        order = [card.index(x) for x in ("<h4>Ungrouped</h4>", "<h4>Overview</h4>", "<h5>Opportunity</h5>",
+                                         "<h5>Facts</h5>", "<h4>Brand</h4>", "<h5>Rules</h5>")]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(card.count("<section class='finding-group'>"), 2)
+        self.assertIn("<thead><tr><th scope='col'>ID</th><th scope='col'>Rule &lt;b&gt;</th></tr></thead>", card)
+        self.assertIn("<tr><th scope='row'>VO-02</th><td>Calm &amp; polite</td></tr>", card)
+        self.assertIn("<tr><th scope='row'>Effort</th><td>S</td></tr>", card)
+        # A table carries the section, so it is not reported as unrecorded; tables are not numbered.
+        self.assertNotIn("empty-value", card)
+        self.assertNotIn("<caption", card)
+
+    def test_fields_without_groups_or_tables_render_as_before(self):
+        page = report.render_document(document(finding(fields=[{"label": "Impact", "text": "x"}, {"label": "Fix"}])), "en")
+        self.assertIn("<div class='finding-field'><h4>Impact</h4><p class='prose'>x</p></div>", page)
+        self.assertIn("<div class='finding-field'><h4>Fix</h4><p class='empty-value'>Not recorded.</p></div>", page)
+        self.assertNotIn("<section class='finding-group'>", page)
+
+    def test_dashboard_payload_carries_groups_and_tables_but_not_extensions(self):
+        fields = [dict(x, extra="dropped") for x in self.FIELDS]
+        page = report.render_dashboard(document(finding(fields=fields)), "en")
+        payload = json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>', page, re.S)
+                             .group(1).replace("\\u003c", "<"))
+        self.assertEqual(payload["findings"][0]["fields"], self.FIELDS)
 
 
 class ReportAccountingTests(unittest.TestCase):

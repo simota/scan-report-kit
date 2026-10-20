@@ -136,6 +136,13 @@ they are told apart by the label text and by the entry's left rule weight
   Dashboard finding links expand the destination and move keyboard focus to its
   detail toggle. Detail titles and actions wrap onto separate lines when space
   is limited.
+- Finding body groups and tables: in the dashboard, two or more field groups
+  become WAI-ARIA tabs above a panel ruled like the detail list (arrow keys,
+  Home and End move between tabs); printing shows every panel under its group
+  heading. In the printable report each group opens with a rule and an ink
+  sans heading, its sections take a smaller sans `h5`. Field tables are
+  uncaptioned booktabs with automatic layout: they belong to their section, so
+  they take no "Table n" number; the first cell of each row is a sans row head.
 - Dashboard cards (`.cards`): one row of equal columns at any count; two
   columns at 850px and below.
 
