@@ -62,9 +62,25 @@ rules when reading untrusted JSON themselves.
 | `confidence`, `verdict`, `category`, `location` | no | Free strings, shown in the register (`—` when absent). |
 | `excluded` | no | `true` for records kept but not counted (false positives, not applicable). |
 | `action` | no | `{"label", "text"}`: the next action for an open finding (e.g. "Fix now" / "Verify first"). |
-| `fields` | no | Ordered body sections: `[{"label", "text"}]` — impact, fix, evidence, whatever the scan records. |
+| `fields` | no | Ordered body sections: `[{"label", "text"}]` — impact, fix, evidence, whatever the scan records. Optional `group`, `columns` and `rows` lay them out; see below. |
 | `snippet` | no | `{"start": first line number, "hit": [first, last], "lines": ["…"]}`. Each string in `lines` holds one source line without line breaks. See line numbers below; redact secrets before writing it. |
 | `references` | no | `[{"type", "title", "url"}]`; `url` must use http(s), have a nonempty host and, when a nonempty port is supplied, a valid numeric port. Whitespace, control characters and backslashes must not appear literally in a URL. Host names also reject forbidden delimiters and malformed percent encodings; internationalized domains, IPv6 and localhost remain supported. A bracketed host must be an IPv6 address, optionally with a `%25`-encoded zone. These are structural checks, not DNS resolution or full IDNA validation. `type` and `title` are optional strings. |
+
+### Field layout
+
+A body section may name a `group` (one nonblank line) and carry a table:
+`rows`, a nonempty list of nonempty string lists of equal length, with
+optional `columns` naming its heads (one per cell). The first cell of each row
+heads that row, so a two-cell table reads as label and value. `text`, when
+present, leads the table; a section with a table needs no text.
+
+Sections without a group come first, then each group in the order its first
+section appears; sections keep their recorded order within a group. The
+dashboard shows two or more groups as tabs below the ungrouped sections (one
+group reads as part of the list); the printable report sets each group under
+its own heading. Copy-for-LLM writes a group as a heading over its sections and
+a table one row per line, cells joined by ` | `. Search covers group names and
+cells. A report without these keys renders as before.
 
 Ordering: open before closed, then High → Info; recorded order breaks ties.
 Counts cover non-excluded findings only.

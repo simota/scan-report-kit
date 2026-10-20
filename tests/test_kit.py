@@ -78,13 +78,15 @@ class RenderTests(unittest.TestCase):
         self.assertNotRegex(css, r"(?:^|[}\n,])(?:\.register\s)?th:nth-child")
         self.assertNotIn("table-layout:fixed}", css.replace("table.register{table-layout:fixed}", ""))
         self.assertNotRegex(css, r"(?:^|[{}\n,])(?:table|\.register),")
-        self.assertNotIn("table.register thead{display:none}", css)
-        self.assertIn("table.register thead{position:absolute;width:1px;height:1px;", css)
+        self.assertNotIn("table.register>thead{display:none}", css)
+        self.assertIn("table.register>thead{position:absolute;width:1px;height:1px;", css)
+        # Register rules reach only its own rows, never a table nested in a detail row.
+        self.assertNotRegex(css, r"table\.register (?:thead|tbody|tr|td|th)\b(?!\.row)")
         # The narrow register rows stay a grid: as specific as the block rule above it.
         self.assertIn("table.register tr.row{padding:14px;border-bottom:1px solid var(--line);display:grid;", css)
         # Cells wrap between words; only the register breaks anywhere.
         self.assertIn("vertical-align:top;overflow-wrap:break-word}", css)
-        self.assertIn("table.register td{overflow-wrap:anywhere}", css)
+        self.assertIn("table.register>tbody>tr>td{overflow-wrap:anywhere}", css)
         self.assertIn("th.nowrap,td.nowrap,.nowrap{white-space:nowrap}", css)
         # Any number of cards shares one row, two columns on narrow screens.
         self.assertIn(".cards{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)", css)

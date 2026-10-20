@@ -192,6 +192,44 @@ def _object(value, where):
     return value
 
 
+def _field_layout(field, where):
+    """Optional group (a tab or subsection) and table (columns, rows) of one body section."""
+    if "group" in field and not _text(field, "group", where).strip():
+        raise FormatError(f"{where}.group: expected a nonblank string")
+    if "group" in field and LINE_BREAKS.search(field["group"]):
+        raise FormatError(f"{where}.group: expected one line")
+    width = None
+    if "columns" in field:
+        columns = field["columns"]
+        if not isinstance(columns, list) or not columns:
+            raise FormatError(f"{where}.columns: expected a nonempty list of strings")
+        for k, column in enumerate(columns):
+            _string(column, f"{where}.columns[{k}]")
+        width = len(columns)
+        if "rows" not in field:
+            raise FormatError(f"{where}.rows: required with columns")
+    if "rows" in field:
+        rows = field["rows"]
+        if not isinstance(rows, list) or not rows:
+            raise FormatError(f"{where}.rows: expected a nonempty list of rows")
+        for k, row in enumerate(rows):
+            if not isinstance(row, list) or not row:
+                raise FormatError(f"{where}.rows[{k}]: expected a nonempty list of strings")
+            width = width or len(row)
+            if len(row) != width:
+                raise FormatError(f"{where}.rows[{k}]: expected {width} cells")
+            for n, cell in enumerate(row):
+                _string(cell, f"{where}.rows[{k}][{n}]")
+
+
+def field_groups(fields):
+    """Fields without a group, then each group in order of first appearance: [(group or None, [fields])]."""
+    groups = {None: []}
+    for field in fields:
+        groups.setdefault(field.get("group"), []).append(field)
+    return [(name, items) for name, items in groups.items() if items]
+
+
 def validate(data):
     """Check data against docs/format.md and return it; raises FormatError."""
     _object(data, "report")
@@ -257,6 +295,7 @@ def validate(data):
             _object(field, f"{where}.fields[{j}]")
             _text(field, "label", f"{where}.fields[{j}]", required=True)
             _text(field, "text", f"{where}.fields[{j}]")
+            _field_layout(field, f"{where}.fields[{j}]")
         if "snippet" in f:
             s = _object(f["snippet"], f"{where}.snippet")
             hit = s.get("hit")
@@ -364,6 +403,17 @@ def snippet_html(snippet):
     return "<pre class='snippet'>" + "".join(rows) + "</pre>"
 
 
+def field_table_html(field):
+    """A body section's table: optional column heads, each row headed by its first cell."""
+    if "rows" not in field:
+        return ""
+    head = ("<thead><tr>" + "".join(f"<th scope='col'>{prose_html(c)}</th>" for c in field["columns"]) + "</tr></thead>"
+            if "columns" in field else "")
+    rows = "".join("<tr>" + f"<th scope='row'>{prose_html(row[0])}</th>"
+                   + "".join(f"<td>{prose_html(c)}</td>" for c in row[1:]) + "</tr>" for row in field["rows"])
+    return f"<table class='field-table'>{head}<tbody>{rows}</tbody></table>"
+
+
 def refs_html(refs, L):
     if not refs:
         return ""
@@ -447,10 +497,16 @@ def render_document(data, lang):
                         + "</td></tr>" for k in ("severity", "status", "confidence", "verdict", "category", "location"))
         action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4><p class='prose'>{prose_html(f['action'].get('text'))}</p></div>"
                   if f.get("action") and f["status"] == "Open" and not f.get("excluded") else "")
-        fields = "".join(f"<div class='finding-field'><h4>{esc(x['label'])}</h4>"
-                         + (f"<p class='prose'>{prose_html(x['text'])}</p>" if x.get("text", "").strip()
-                            else f"<p class='empty-value'>{esc(L['not_recorded'])}</p>") + "</div>"
-                         for x in f.get("fields", []))
+        def field(x, h):
+            text = x.get("text", "")
+            body = (f"<p class='prose'>{prose_html(text)}</p>" if text.strip() else
+                    "" if "rows" in x else f"<p class='empty-value'>{esc(L['not_recorded'])}</p>")
+            return f"<div class='finding-field'><{h}>{esc(x['label'])}</{h}>{body}{field_table_html(x)}</div>"
+
+        fields = "".join("".join(field(x, "h4") for x in items) if name is None else
+                         f"<section class='finding-group'><h4>{esc(name)}</h4>"
+                         + "".join(field(x, "h5") for x in items) + "</section>"
+                         for name, items in field_groups(f.get("fields", [])))
         snippet = (f"<div class='finding-field'><h4>{esc(L['snippet'])}</h4>{snippet_html(f['snippet'])}</div>"
                    if f.get("snippet") else "")
         refs = (f"<div class='finding-field'><h4>{esc(L['references'])}</h4>{refs_html(f['references'], L)}</div>"
@@ -539,7 +595,7 @@ def _finding_payload(finding, index):
     for key, keys in (("action", ("label", "text")), ("snippet", ("start", "hit", "lines"))):
         if key in finding:
             payload[key] = {k: finding[key][k] for k in keys if k in finding[key]}
-    for key, keys in (("fields", ("label", "text")), ("references", ("type", "title", "url"))):
+    for key, keys in (("fields", ("label", "text", "group", "columns", "rows")), ("references", ("type", "title", "url"))):
         if key in finding:
             payload[key] = [{k: item[k] for k in keys if k in item} for item in finding[key]]
     return payload
