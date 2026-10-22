@@ -563,6 +563,11 @@ test('grouped fields become tabs with tables, and copy and search cover every gr
   key('ArrowLeft');
   assert.equal(h.document.activeElement, tabs[0]);
   assert.equal(key('a').prevented, undefined);
+  // Modified arrows stay with the browser (Alt+Left is Back).
+  const back = { key: 'ArrowLeft', altKey: true, preventDefault() { back.prevented = true; }, stopPropagation() {} };
+  list.onkeydown(back);
+  assert.equal(back.prevented, undefined);
+  assert.equal(h.document.activeElement, tabs[0]);
   // Redraws (sorting, filtering, searching) rebuild the detail but keep the chosen tab.
   tabs[1].click();
   h.change('f-sort', 'id');
@@ -580,6 +585,23 @@ test('grouped fields become tabs with tables, and copy and search cover every gr
     h.search(term);
     assert.deepEqual(h.ids(), [h.data.findings[0].id], term);
   }
+});
+
+test('blank table leads and empty groups are absent from the detail and the copy', async () => {
+  const h = dashboard('en', { clipboard: 'success', mutate(data) {
+    data.findings[0].fields = [
+      { label: 'Req', group: 'Request', text: '   ', rows: [['Method', 'GET']] },
+      { label: 'Empty', group: 'Unrecorded', text: '' }
+    ];
+  } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  const detail = h.id('finding-1-detail');
+  assert.equal(detail.querySelectorAll('p.field-lead').length, 0);
+  detail.querySelector('.copy-finding').click();
+  await settle();
+  const text = h.copied[0];
+  assert.ok(text.includes('### Request\n\n#### Req\n```text\nMethod | GET\n```'), text);
+  assert.ok(!text.includes('Unrecorded'), text);
 });
 
 test('a single group reads as part of the detail list, without tabs', () => {
