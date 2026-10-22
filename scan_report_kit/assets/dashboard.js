@@ -5,7 +5,7 @@
   'use strict';
   var D = JSON.parse(document.getElementById('data').textContent), L = D.labels, ALL = D.findings;
   var F = ALL.filter(function (f) { return !f.excluded; }), SEV = D.order.severity, ST = D.order.status;
-  var expanded = new Set();
+  var expanded = new Set(), groupTab = new Map();
   var idOrder = new Intl.Collator(document.documentElement.lang || 'en', { numeric: true });
 
   function el(t, a, txt) {
@@ -374,6 +374,7 @@
   }
   // Groups as tabs: arrow keys, Home and End move between them (WAI-ARIA tabs).
   // Each panel keeps a heading, hidden on screen, so print shows every group.
+  // Redraws rebuild open details; the chosen tab survives them like expansion.
   function fieldTabs(f, groups, fill) {
     var box = el('div', { 'class': 'field-groups' });
     var list = el('div', { 'class': 'field-tabs', role: 'tablist', 'aria-label': f.id + ' · ' + f.title });
@@ -384,6 +385,7 @@
         tab.setAttribute('tabindex', i === j ? '0' : '-1');
         panels[j].hidden = i !== j;
       });
+      groupTab.set(f.anchor, i);
       if (focus) tabs[i].focus();
     }
     groups.forEach(function (g, i) {
@@ -405,7 +407,7 @@
       e.stopPropagation();
       select(to % n, true);
     };
-    select(0, false);
+    select(groupTab.get(f.anchor) || 0, false);
     box.appendChild(list);
     panels.forEach(function (panel) { box.appendChild(panel); });
     return box;

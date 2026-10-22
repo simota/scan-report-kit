@@ -563,6 +563,12 @@ test('grouped fields become tabs with tables, and copy and search cover every gr
   key('ArrowLeft');
   assert.equal(h.document.activeElement, tabs[0]);
   assert.equal(key('a').prevented, undefined);
+  // Redraws (sorting, filtering, searching) rebuild the detail but keep the chosen tab.
+  tabs[1].click();
+  h.change('f-sort', 'id');
+  const kept = h.id('finding-1-detail').querySelectorAll('div[role="tabpanel"]');
+  assert.deepEqual(kept.map(panel => panel.hidden), [true, false]);
+  assert.equal(h.id('finding-1-detail').querySelectorAll('button[role="tab"]')[1].getAttribute('aria-selected'), 'true');
   detail.querySelector('.copy-finding').click();
   await settle();
   const text = h.copied[0];
