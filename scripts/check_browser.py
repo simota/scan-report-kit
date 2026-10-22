@@ -35,6 +35,9 @@ VISUAL_LINES = [
     ["visual-0-start", 0], ["visual-1-lf", 1], ["visual-2-crlf", 2], ["visual-3-cr", 3],
     ["visual-4-double-cr", 5], ["visual-5-cr-crlf", 7], ["visual-6-last", 8],
 ]
+# One unbreakable cell: automatic table layout must wrap it inside the measure.
+LONG_CELL = "long_table_cell_" * 24
+GROUPS = ["Browser group A", "Browser group B"]
 VISUAL_TEXT = "visual-0-start\nvisual-1-lf\r\nvisual-2-crlf\rvisual-3-cr\r\rvisual-4-double-cr\r\r\nvisual-5-cr-crlf\nvisual-6-last\r"
 
 ERROR_CAPTURE = """<script>
@@ -72,6 +75,14 @@ window.__scanBrowserLineBreaks = function (element, text, expected) {
   if (!Number.isFinite(lineHeight) || lineHeight <= 0) throw new Error('unmeasurable prose line height');
   const first = top(expected[0][0]);
   return expected.every(([marker, line]) => Math.abs(top(marker) - first - line * lineHeight) <= 1);
+};
+window.__scanBrowserTablesFit = function (root) {
+  'use strict';
+  // Field tables size their columns automatically; none may widen its section.
+  const tables = Array.from(root.querySelectorAll('table.field-table'));
+  return tables.length > 0 && tables.every(table => table.offsetParent === null ||
+    (table.getBoundingClientRect().width <= table.parentElement.clientWidth + 1 &&
+     Array.from(table.querySelectorAll('th,td')).every(cell => cell.scrollWidth <= cell.clientWidth + 1)));
 };
 window.__scanBrowserNormalCR = function () {
   'use strict';
@@ -196,6 +207,20 @@ window.__scanBrowserSmoke = (async function () {
     check(window.__scanBrowserLineBreaks(evidence, C.evidence, C.visualLines),
           'evidence renders LF, CRLF, CR, and consecutive CR on the recorded lines');
     check(!document.querySelector('srk-smoke-injected'), 'report text never creates HTML elements');
+    const detail = byId(C.firstAnchor + '-detail');
+    const tabs = Array.from(detail.querySelectorAll('[role="tab"]'));
+    const panels = tabs.map(tab => byId(tab.getAttribute('aria-controls')));
+    check(JSON.stringify(tabs.map(tab => tab.textContent)) === JSON.stringify(C.groups) &&
+          tabs[0].getAttribute('aria-selected') === 'true' && !panels[0].hidden && panels[1].hidden,
+          'field groups open on the first tab');
+    check(panels[0].textContent.includes(C.longCell) && window.__scanBrowserTablesFit(detail),
+          'field tables wrap long cells inside the detail row');
+    tabs[0].focus();
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    check(document.activeElement === tabs[1] && tabs[1].getAttribute('aria-selected') === 'true' &&
+          panels[0].hidden && !panels[1].hidden, 'arrow keys move between field group tabs');
+    tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    check(document.activeElement === tabs[0] && !panels[0].hidden, 'Home returns to the first field group');
 
     byId('reset').click();
     check(rows().length === C.included && byId('f-sort').value === 'priority' && byId('f-q').value === '',
@@ -311,6 +336,11 @@ window.__scanBrowserSmoke = (async function () {
     const hit = snippet.querySelector('.hit'), normal = snippet.querySelector('span:not(.hit)');
     check(Number(getComputedStyle(hit.querySelector('b')).fontWeight) >
           Number(getComputedStyle(normal.querySelector('b')).fontWeight), 'source highlight has a non-color cue');
+    const groups = document.getElementById(C.firstAnchor).querySelectorAll('.finding-group > h4');
+    check(JSON.stringify(Array.from(groups, h => h.textContent)) === JSON.stringify(C.groups),
+          'field groups are headed subsections');
+    check(window.__scanBrowserTablesFit(document.getElementById(C.firstAnchor)),
+          'field tables wrap long cells inside the page measure');
     const root = document.documentElement;
     metrics = { innerWidth: window.innerWidth, clientWidth: root.clientWidth,
       scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth), rowDisplay: getComputedStyle(rows[0]).display,
@@ -368,6 +398,12 @@ window.__scanBrowserPrintSmoke = function () {
           node.textContent === C.evidence);
     check(!!evidence && window.__scanBrowserLineBreaks(evidence, C.evidence, C.visualLines),
           'printed evidence preserves visual newline positions');
+    if (!C.documentView) {
+      check(Array.from(finding.querySelectorAll('.field-panel')).every(panel =>
+            getComputedStyle(panel).display !== 'none' && getComputedStyle(panel.querySelector('h4')).display !== 'none'),
+            'printed dashboard shows every field group under its heading');
+    }
+    check(window.__scanBrowserTablesFit(finding), 'printed field tables wrap long cells inside the page');
     if (C.documentView) {
       check(window.__scanBrowserLineBreaks(document.querySelector('.lead'), C.summary, C.visualLines),
             'printed summary preserves visual newline positions');
@@ -473,6 +509,9 @@ def make_page(lang, view, document_view=False):
     first["location"] = "src/" + "long_unbroken_path_" * 12 + ":42"
     evidence = "\r" + SEARCH + " </script> " + MARKUP + "\r\n  indented evidence line\rfinal evidence line\n" + VISUAL_TEXT
     first.setdefault("fields", []).append({"label": "Browser smoke", "text": evidence})
+    first["fields"] += [{"label": "Browser table", "group": GROUPS[0], "columns": ["Name", "Value"],
+                         "rows": [["Header", LONG_CELL], ["Short", "value"]]},
+                        {"label": "Browser second", "group": GROUPS[1], "text": "second group text"}]
     data["summary"] = "\r  " + data["summary"] + "\r\nSummary continuation\rFinal summary line  \n" + VISUAL_TEXT
     snippet = first["snippet"]
     marked_index = snippet["hit"][0] - snippet["start"]
@@ -484,7 +523,8 @@ def make_page(lang, view, document_view=False):
               "included": 4, "excluded": 1, "sortedIds": ["F-1", "F-2", "F-10", "F-20"],
               "firstId": ids[0], "firstAnchor": report.anchor(0), "excludedAnchor": report.anchor(4),
               "summary": data["summary"], "evidence": evidence, "longSource": long_source,
-              "documentView": document_view, "visualLines": VISUAL_LINES}
+              "documentView": document_view, "visualLines": VISUAL_LINES,
+              "longCell": LONG_CELL, "groups": GROUPS}
     source = DOCUMENT_SMOKE_JS if document_view else SMOKE_JS
     encoded_config = json.dumps(config, ensure_ascii=True).replace("<", "\\u003c")
     script = VISUAL_LINE_JS + source.replace("__CONFIG__", encoded_config, 1) + PRINT_SMOKE_JS.replace("__CONFIG__", encoded_config, 1)

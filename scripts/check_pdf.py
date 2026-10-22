@@ -100,6 +100,28 @@ def check_newlines(directory, engine):
           "normal-whitespace CR retains a word space")
 
 
+def check_field_tables(directory, engine):
+    # Automatic table layout must wrap an unbreakable cell inside the page:
+    # glyphs pushed past the page edge are clipped and missing from the text.
+    cell = "LongTableCell" * 24
+    data = {
+        "format": "scan-report/1",
+        "meta": {"project": "Field table check", "date": "2026-01-01"},
+        "findings": [{"id": "T-1", "title": "Recorded table evidence", "severity": "Info", "status": "Fixed",
+                      "fields": [{"label": "Request", "group": "Evidence", "columns": ["Name", "Value"],
+                                  "rows": [["Header", cell], ["Short", "TableShortValue"]]}]}],
+    }
+    result = render_pdf(data, "en", "table", directory, engine)
+    extracted = subprocess.run(["pdftotext", str(result), "-"], capture_output=True,
+                               text=True, check=True, timeout=30).stdout
+    output.write_output(directory / "table.txt", extracted)
+    compact = re.sub(r"\s+", "", extracted)
+    for text in ("Evidence", "Request", "Name", "Value", "Header", cell, "Short", "TableShortValue"):
+        if text not in compact:
+            raise RuntimeError(f"table: PDF text is missing {text[:40]!r} ({len(text)} characters)")
+    print(f"{engine}: field groups and tables print every cell, wrapping a long cell inside the page")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--engine", choices=("chrome", "weasyprint"), required=True)
@@ -139,6 +161,7 @@ def main(argv=None):
             print(f"{args.engine}: {lang} PDF contains the project, title, footer, summary "
                   f"and all {len(data['findings'])} findings with their field text")
         check_newlines(directory, args.engine)
+        check_field_tables(directory, args.engine)
     return 0
 
 

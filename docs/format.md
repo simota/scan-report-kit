@@ -72,14 +72,15 @@ A body section may name a `group` (one nonblank line) and carry a table:
 `rows`, a nonempty list of nonempty string lists of equal length, with
 optional `columns` naming its heads (one per cell). The first cell of each row
 heads that row, so a two-cell table reads as label and value. `text`, when
-present, leads the table; a section with a table needs no text.
+nonblank, leads the table; a section with a table needs no text.
 
 Sections without a group come first, then each group in the order its first
 section appears; sections keep their recorded order within a group. The
 dashboard shows two or more groups as tabs below the ungrouped sections (one
 group reads as part of the list); the printable report sets each group under
 its own heading. Copy-for-LLM writes a group as a heading over its sections and
-a table one row per line, cells joined by ` | `. Search covers group names and
+a table one row per line, cells joined by ` | `; like empty sections, a group
+with none recorded is left out. Search covers group names and
 cells. A report without these keys renders as before.
 
 Ordering: open before closed, then High → Info; recorded order breaks ties.

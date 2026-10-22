@@ -5,7 +5,7 @@
   'use strict';
   var D = JSON.parse(document.getElementById('data').textContent), L = D.labels, ALL = D.findings;
   var F = ALL.filter(function (f) { return !f.excluded; }), SEV = D.order.severity, ST = D.order.status;
-  var expanded = new Set();
+  var expanded = new Set(), groupTab = new Map();
   var idOrder = new Intl.Collator(document.documentElement.lang || 'en', { numeric: true });
 
   function el(t, a, txt) {
@@ -213,9 +213,11 @@
     });
     return groups.filter(function (g) { return g.items.length; });
   }
+  // Blank text leads no table, as in the printable report.
+  function tableLead(x) { return x.text && x.text.trim() ? x.text : ''; }
   // A field's text, then its table one row per line, cells joined by " | ".
   function fieldPlain(x) {
-    var lines = x.text ? [x.text] : [];
+    var lead = x.rows ? tableLead(x) : x.text, lines = lead ? [lead] : [];
     if (x.rows) [x.columns].concat(x.rows).forEach(function (row) {
       if (row) lines.push(row.map(oneLine).join(' | '));
     });
@@ -229,8 +231,10 @@
     p(L.category, f.category); p(L.location, f.location);
     if (f.action && f.status === 'Open' && !f.excluded) block(f.action.label, f.action.text);
     fieldGroups(f.fields || []).forEach(function (g) {
-      if (g.name !== null) out.push('', '### ' + markdownInline(g.name));
-      g.items.forEach(function (x) { block(x.label, fieldPlain(x), g.name === null ? '###' : '####'); });
+      // Empty sections are left out, so a group with none left gets no heading.
+      var items = g.items.filter(function (x) { return fieldPlain(x); });
+      if (g.name !== null && items.length) out.push('', '### ' + markdownInline(g.name));
+      items.forEach(function (x) { block(x.label, fieldPlain(x), g.name === null ? '###' : '####'); });
     });
     if (f.snippet) {
       var lines = f.snippet.lines.map(function (text, i) {
@@ -317,7 +321,7 @@
     function fieldValue(x) {
       if (!x.rows) return x.text || L.not_recorded;
       var box = el('div');
-      if (x.text) { var lead = el('p', { 'class': 'field-lead' }); proseInto(lead, x.text); box.appendChild(lead); }
+      if (tableLead(x)) { var lead = el('p', { 'class': 'field-lead' }); proseInto(lead, x.text); box.appendChild(lead); }
       box.appendChild(fieldTable(x));
       return box;
     }
@@ -374,6 +378,7 @@
   }
   // Groups as tabs: arrow keys, Home and End move between them (WAI-ARIA tabs).
   // Each panel keeps a heading, hidden on screen, so print shows every group.
+  // Redraws rebuild open details; the chosen tab survives them like expansion.
   function fieldTabs(f, groups, fill) {
     var box = el('div', { 'class': 'field-groups' });
     var list = el('div', { 'class': 'field-tabs', role: 'tablist', 'aria-label': f.id + ' · ' + f.title });
@@ -384,6 +389,7 @@
         tab.setAttribute('tabindex', i === j ? '0' : '-1');
         panels[j].hidden = i !== j;
       });
+      groupTab.set(f.anchor, i);
       if (focus) tabs[i].focus();
     }
     groups.forEach(function (g, i) {
@@ -398,6 +404,8 @@
       list.appendChild(tab);
     });
     list.onkeydown = function (e) {
+      // Modified arrows belong to the browser (Alt+Left is Back).
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
       var i = tabs.indexOf(document.activeElement), n = tabs.length;
       var to = { ArrowRight: i + 1, ArrowLeft: i - 1 + n, Home: 0, End: n - 1 }[e.key];
       if (i < 0 || to === undefined) return;
@@ -405,7 +413,7 @@
       e.stopPropagation();
       select(to % n, true);
     };
-    select(0, false);
+    select(groupTab.get(f.anchor) || 0, false);
     box.appendChild(list);
     panels.forEach(function (panel) { box.appendChild(panel); });
     return box;
