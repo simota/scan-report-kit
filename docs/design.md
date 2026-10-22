@@ -143,6 +143,8 @@ they are told apart by the label text and by the entry's left rule weight
   sans heading, its sections take a smaller sans `h5`. Field tables are
   uncaptioned booktabs with automatic layout: they belong to their section, so
   they take no "Table n" number; the first cell of each row is a sans row head.
+  Their cells wrap anywhere, so a long unbroken value (a token, header or hash)
+  wraps inside the measure instead of widening the table past the page.
 - Dashboard cards (`.cards`): one row of equal columns at any count; two
   columns at 850px and below.
 

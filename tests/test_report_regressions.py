@@ -442,6 +442,15 @@ class FieldLayoutTests(unittest.TestCase):
                              .group(1).replace("\\u003c", "<"))
         self.assertEqual(payload["findings"][0]["fields"], self.FIELDS)
 
+    def test_printed_field_tables_wrap_long_cells_anywhere(self):
+        # Field tables use automatic layout, so only overflow-wrap:anywhere lets an
+        # unbreakable cell shrink its column. The generic th,td rule ends with the
+        # word-wrap alias (break-word), which would push the table past the page.
+        css = style.document_css("FOOTER")
+        rule = re.search(r"\.field-table th,\.field-table td\{([^}]*)\}", css).group(1)
+        wraps = re.findall(r"(?:overflow-wrap|word-wrap):([\w-]+)", rule)
+        self.assertEqual(wraps[-1:], ["anywhere"])
+
 
 class ReportAccountingTests(unittest.TestCase):
     def test_counts_exclude_every_excluded_severity_and_status(self):
