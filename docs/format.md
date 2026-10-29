@@ -10,9 +10,11 @@ without modifying it, and raises `FormatError` for invalid input. Both
 Text must be valid Unicode without surrogate code points or NUL (U+0000).
 HTML parsers replace NUL characters, so accepting them would change recorded
 evidence when it is read. CR and CRLF line endings in text and attributes
-are preserved through HTML parsing. Body text styled to preserve line breaks
+are preserved through HTML parsing. Prose — the summary, list items,
+perspective results and notes, action text, field text and table cells —
 displays LF, CRLF and standalone CR as one line break each without changing
-the recorded text. A nonblank summary also retains its leading and trailing
+the recorded text, in the dashboard and the printable report alike. A blank
+summary, action text, perspective result or note counts as absent. A nonblank summary also retains its leading and trailing
 whitespace. Required strings
 must contain a non-whitespace character. Unknown keys are ignored and are not
 copied into the dashboard payload, so extensions cannot change built-in labels

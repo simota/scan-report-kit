@@ -434,6 +434,9 @@ def render_document(data, lang):
     def value(text):
         return esc(text) if str(text or "").strip() else esc(L["none"])
 
+    def prose_span(text):
+        return f"<span class='prose'>{prose_html(text)}</span>" if str(text or "").strip() else ""
+
     def bullets(items, empty):
         return ("<ul>" + "".join(f"<li class='prose'>{prose_html(x)}</li>" for x in items) + "</ul>"
                 if items else f"<p class='small'>{esc(L[empty])}</p>")
@@ -458,7 +461,7 @@ def render_document(data, lang):
         f"<td><div class='queue-title'>{esc(f['title'])}</div>"
         f"<div class='queue-location'><code>{esc(f.get('location'))}</code></div></td>"
         f"<td class='queue-action'>"
-        + (f"<strong>{esc(f['action']['label'])}</strong>{esc(f['action'].get('text'))}" if f.get("action") else esc(L["none"]))
+        + (f"<strong>{esc(f['action']['label'])}</strong>{prose_span(f['action'].get('text'))}" if f.get("action") else esc(L["none"]))
         + "</td></tr>" for f in open_fs)
     queue = (f"<table class='queue'><caption>{esc(L['priority_caption'])}</caption>"
              "<colgroup><col class='ref-col'><col class='finding-col'><col class='action-col'></colgroup>"
@@ -469,7 +472,7 @@ def render_document(data, lang):
     lists = "".join(f"<section id='{k.replace('_', '-')}'><h2>{esc(L[k])}</h2>{bullets(data.get(k, []), 'not_recorded')}</section>"
                     for k in ("decisions", "next_steps") if data.get(k))
 
-    coverage_rows = "".join(f"<tr><td>{esc(p['name'])}</td><td>{value(p.get('result'))}</td><td>{value(p.get('note'))}</td></tr>"
+    coverage_rows = "".join(f"<tr><td>{esc(p['name'])}</td><td>{prose_span(p.get('result')) or esc(L['none'])}</td><td>{prose_span(p.get('note')) or esc(L['none'])}</td></tr>"
                             for p in data.get("perspectives", []))
     coverage = (f"<table class='coverage'><caption>{esc(L['coverage_caption'])}</caption>"
                 "<colgroup><col class='perspective-col'><col class='result-col'><col class='note-col'></colgroup>"
@@ -495,7 +498,9 @@ def render_document(data, lang):
         state = "".join(f"<tr><th scope='row'>{esc(L[k])}</th><td>"
                         + (f"<span class='badge {f['severity']}'>{f['severity']}</span>" if k == "severity" else value(f.get(k)))
                         + "</td></tr>" for k in ("severity", "status", "confidence", "verdict", "category", "location"))
-        action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4><p class='prose'>{prose_html(f['action'].get('text'))}</p></div>"
+        action_text = f.get("action", {}).get("text", "")
+        action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4>"
+                  + (f"<p class='prose'>{prose_html(action_text)}</p>" if action_text.strip() else "") + "</div>"
                   if f.get("action") and f["status"] == "Open" and not f.get("excluded") else "")
         def field(x, h):
             text = x.get("text", "")

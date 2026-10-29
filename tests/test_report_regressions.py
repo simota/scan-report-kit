@@ -172,6 +172,7 @@ class ReportSecurityTests(unittest.TestCase):
             ))
             data["summary"] = text
             data["labels"] = {"title_col": text}
+            data["perspectives"] = [{"name": "Perspective", "result": text, "note": text}]
             data.update({key: [text] for key in report.LIST_KEYS})
             for lang in ("en", "ja"):
                 with self.subTest(lang=lang, text=repr(text)):
@@ -181,10 +182,12 @@ class ReportSecurityTests(unittest.TestCase):
                     # textContent and the extra visual breaks, including all
                     # prose locations and attributes that must contain text.
                     parsed_source = page.replace("\r\n", "\n").replace("\r", "\n")
-                    prose = re.findall(r'<(?:p|li) class=[\'"](?:lead )?prose[\'"]>(.*?)</(?:p|li)>',
-                                       parsed_source, re.S)
-                    self.assertEqual(len(prose), 7)
-                    for fragment in prose:
+                    # Summary, four lists, the finding's action and field, and
+                    # the queue action and coverage result and note in cells.
+                    prose = re.findall(r'<(p|li|span) class=[\'"](?:lead )?prose[\'"]>'
+                                       r'((?:[^<]|<br>|<span hidden>&#13;</span>)*)</\1>', parsed_source)
+                    self.assertEqual(len(prose), 10)
+                    for _, fragment in prose:
                         parsed = Tags()
                         parsed.feed(fragment)
                         self.assertEqual("".join(parsed.text), text)
@@ -203,6 +206,16 @@ class ReportSecurityTests(unittest.TestCase):
                     payload = self.payload(report.render_dashboard(data, lang))
                     self.assertEqual(payload["summary"], text)
                     self.assertEqual(payload["findings"][0]["fields"][0]["text"], text)
+
+    def test_blank_queue_action_and_coverage_text_render_as_absent(self):
+        data = document(finding(action={"label": "Fix now", "text": " \r\n "}))
+        data["perspectives"] = [{"name": "Auth", "result": "\n", "note": ""}]
+        page = report.render_document(data, "en")
+        self.assertIn("<td class='queue-action'><strong>Fix now</strong></td>", page)
+        self.assertIn("<tr><td>Auth</td><td>—</td><td>—</td></tr>", page)
+        self.assertNotIn("<span class='prose'>", page)
+        self.assertIn("<h4>Fix now</h4></div>", page)
+        self.assertNotIn("<p class='prose'>", page)
 
     def test_blank_document_summary_still_uses_the_missing_summary_label(self):
         for value in ("", " \r\n\t "):

@@ -27,10 +27,20 @@
     fs.forEach(function (f) { var k = f[key] || L.none; c[k] = (c[k] || 0) + 1; });
     return c;
   }
+  // Recorded prose keeps its line breaks wherever it appears, as in the
+  // printable report; blank text counts as absent.
+  function lines(tag, text, cls) {
+    var e = el(tag, { 'class': 'text-lines' + (cls ? ' ' + cls : '') });
+    proseInto(e, text);
+    return e;
+  }
+  // Blank as Python's str.strip() sees it, so both outputs agree: JavaScript's
+  // \s also covers U+FEFF but not U+001C-U+001F or U+0085.
+  function blank(text) { return !text || /^(?:(?!\ufeff)[\s\x1c-\x1f\x85])*$/.test(text); }
   function listInto(box, items, empty) {
     if (!items.length) { box.appendChild(el('p', { 'class': 'muted' }, empty)); return; }
     var ul = el('ul');
-    items.forEach(function (x) { ul.appendChild(el('li', null, x)); });
+    items.forEach(function (x) { ul.appendChild(lines('li', x)); });
     box.appendChild(ul);
   }
   function rank(f) { return [Number(f.status !== 'Open'), SEV.indexOf(f.severity)]; }
@@ -58,7 +68,7 @@
 
   var summary = byId('summary');
   summary.appendChild(el('strong', null, D.headline));
-  if (D.summary) summary.appendChild(el('p', null, D.summary));
+  if (!blank(D.summary)) summary.appendChild(lines('p', D.summary));
 
   var open = F.filter(function (f) { return f.status === 'Open'; });
   var urgent = open.filter(function (f) { return f.severity === 'High' || f.severity === 'Medium'; }).length;
@@ -87,7 +97,7 @@
     if (f.action) {
       var act = el('p', { 'class': 'action' });
       act.appendChild(el('span', { 'class': 'action-label' }, f.action.label));
-      if (f.action.text) act.appendChild(document.createTextNode(' ' + f.action.text));
+      if (!blank(f.action.text)) { act.appendChild(document.createTextNode(' ')); act.appendChild(lines('span', f.action.text)); }
       item.appendChild(act);
     }
     byId('priority').appendChild(item);
@@ -105,8 +115,8 @@
   D.perspectives.forEach(function (p) {
     var box = el('div', { 'class': 'perspective' });
     box.appendChild(el('strong', null, p.name));
-    box.appendChild(el('p', null, p.result || L.not_recorded));
-    if (p.note) box.appendChild(el('p', { 'class': 'muted' }, p.note));
+    box.appendChild(blank(p.result) ? el('p', null, L.not_recorded) : lines('p', p.result));
+    if (!blank(p.note)) box.appendChild(lines('p', p.note, 'muted'));
     byId('perspectives').appendChild(box);
   });
 
@@ -214,7 +224,7 @@
     return groups.filter(function (g) { return g.items.length; });
   }
   // Blank text leads no table, as in the printable report.
-  function tableLead(x) { return x.text && x.text.trim() ? x.text : ''; }
+  function tableLead(x) { return blank(x.text) ? '' : x.text; }
   // A field's text, then its table one row per line, cells joined by " | ".
   function fieldPlain(x) {
     var lead = x.rows ? tableLead(x) : x.text, lines = lead ? [lead] : [];
@@ -309,7 +319,7 @@
     if (f.action && f.status === 'Open' && !f.excluded) {
       var guidance = el('div', { 'class': 'action-guidance' });
       guidance.appendChild(el('strong', null, f.action.label));
-      if (f.action.text) guidance.appendChild(el('p', null, f.action.text));
+      if (!blank(f.action.text)) guidance.appendChild(lines('p', f.action.text));
       td.appendChild(guidance);
     }
     function field(label, value, into) {

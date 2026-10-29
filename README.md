@@ -46,7 +46,9 @@ constants before changing any outputs. Both renderers reject NUL characters and
 surrogate code points so recorded text cannot silently change during HTML
 parsing or UTF-8 encoding. Existing reports remain intact after invalid input.
 CR and CRLF line endings in report text survive HTML parsing, and a nonblank
-summary keeps its leading and trailing whitespace.
+summary keeps its leading and trailing whitespace. Multi-line prose (summary,
+list items, coverage results and notes, actions, body sections) shows its line
+breaks in both the dashboard and the printable report.
 
 The dashboard reads like an application: a sticky app bar, a contents
 sidebar that marks the section in view and filters by severity, a filter bar
