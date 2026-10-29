@@ -127,6 +127,16 @@ window.__scanBrowserSmoke = (async function () {
   const rows = () => Array.from(document.querySelectorAll('#rows > tr.row'));
   const ids = () => rows().map(row => row.cells[0].textContent);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  // Scroll events and observer callbacks run at the next rendering update, which
+  // a loaded headless Chrome can hold back past any fixed pause. Wait frame by
+  // frame for the outcome instead, bounded so a page that never settles fails.
+  async function settled(condition, ms) {
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+    for (const end = performance.now() + ms; !condition() && performance.now() < end;) {
+      await Promise.race([frame(), pause(50)]);
+    }
+    return condition();
+  }
   function check(condition, name) {
     if (!condition) throw new Error(name);
     checks.push(name);
@@ -162,6 +172,8 @@ window.__scanBrowserSmoke = (async function () {
     check(document.documentElement.lang === C.lang, 'document language');
     check(byId('h').textContent === C.project, 'project rendered by JavaScript');
     check(byId('summary').querySelector('p').textContent === C.summary, 'summary whitespace is preserved');
+    check(window.__scanBrowserLineBreaks(byId('summary').querySelector('p'), C.summary, C.visualLines),
+          'summary renders LF, CRLF, CR, and consecutive CR on the recorded lines');
     const normalCR = window.__scanBrowserNormalCR();
     metrics.normalCR = normalCR;
     check(normalCR.ok, 'normal whitespace treats DOM and entity CR as a space');
@@ -260,9 +272,8 @@ window.__scanBrowserSmoke = (async function () {
             head.contains(document.elementFromPoint(pinned.left + 4, pinned.top + pinned.height / 2)),
             'register column heads stay visible below the pinned filters');
       window.scrollTo(0, document.documentElement.scrollHeight);
-      await pause(100);
-      const current = byId('nav').querySelector('a[aria-current]');
-      check(window.scrollY > 0 && !!current && current.getAttribute('href') === '#lists',
+      const current = () => byId('nav').querySelector('a[aria-current]');
+      check(window.scrollY > 0 && await settled(() => !!current() && current().getAttribute('href') === '#lists', 2000),
             'contents mark the last section at the end of the page');
       document.documentElement.style.scrollBehavior = '';
     }
