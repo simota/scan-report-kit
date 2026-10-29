@@ -214,6 +214,8 @@ class ReportSecurityTests(unittest.TestCase):
         self.assertIn("<td class='queue-action'><strong>Fix now</strong></td>", page)
         self.assertIn("<tr><td>Auth</td><td>—</td><td>—</td></tr>", page)
         self.assertNotIn("<span class='prose'>", page)
+        self.assertIn("<h4>Fix now</h4></div>", page)
+        self.assertNotIn("<p class='prose'>", page)
 
     def test_blank_document_summary_still_uses_the_missing_summary_label(self):
         for value in ("", " \r\n\t "):

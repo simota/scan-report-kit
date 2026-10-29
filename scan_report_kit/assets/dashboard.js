@@ -34,7 +34,9 @@
     proseInto(e, text);
     return e;
   }
-  function blank(text) { return !text || !text.trim(); }
+  // Blank as Python's str.strip() sees it, so both outputs agree: JavaScript's
+  // \s also covers U+FEFF but not U+001C-U+001F or U+0085.
+  function blank(text) { return !text || /^(?:(?!\ufeff)[\s\x1c-\x1f\x85])*$/.test(text); }
   function listInto(box, items, empty) {
     if (!items.length) { box.appendChild(el('p', { 'class': 'muted' }, empty)); return; }
     var ul = el('ul');
@@ -222,7 +224,7 @@
     return groups.filter(function (g) { return g.items.length; });
   }
   // Blank text leads no table, as in the printable report.
-  function tableLead(x) { return x.text && x.text.trim() ? x.text : ''; }
+  function tableLead(x) { return blank(x.text) ? '' : x.text; }
   // A field's text, then its table one row per line, cells joined by " | ".
   function fieldPlain(x) {
     var lead = x.rows ? tableLead(x) : x.text, lines = lead ? [lead] : [];

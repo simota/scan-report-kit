@@ -306,11 +306,18 @@ test('overview prose keeps recorded line breaks, as in the printable report', ()
 });
 
 test('blank summary and action text are absent from the overview and details', () => {
-  const h = dashboard('en', { mutate(data) { data.summary = ' \r\n '; data.findings[0].action.text = '\n'; } });
+  const h = dashboard('en', { mutate(data) {
+    data.summary = ' \r\n\x1c\x85 '; data.findings[0].action.text = '\n';
+    data.perspectives = [{ name: 'Blank to Python', result: '\x1f\x85', note: '\u3000' }];
+  } });
   h.id('finding-1').querySelector('.finding-toggle').click();
   assert.equal(h.id('summary').querySelector('p'), null);
   assert.equal(h.id('priority').querySelector('.action').textContent, 'Action label marker');
   assert.equal(h.id('finding-1-detail').querySelector('.action-guidance').querySelector('p'), null);
+  assert.deepEqual(h.id('perspectives').querySelectorAll('p').map(node => node.textContent), [h.data.labels.not_recorded]);
+  // U+FEFF is text to Python's str.strip(), so the printable report keeps it too.
+  const bom = dashboard('en', { mutate(data) { data.summary = '\ufeff'; } });
+  assert.equal(bom.id('summary').querySelector('p').textContent, '\ufeff');
 });
 
 test('copy exports safe fences and complete details with the Clipboard API', async () => {

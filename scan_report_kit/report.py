@@ -498,7 +498,9 @@ def render_document(data, lang):
         state = "".join(f"<tr><th scope='row'>{esc(L[k])}</th><td>"
                         + (f"<span class='badge {f['severity']}'>{f['severity']}</span>" if k == "severity" else value(f.get(k)))
                         + "</td></tr>" for k in ("severity", "status", "confidence", "verdict", "category", "location"))
-        action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4><p class='prose'>{prose_html(f['action'].get('text'))}</p></div>"
+        action_text = f.get("action", {}).get("text", "")
+        action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4>"
+                  + (f"<p class='prose'>{prose_html(action_text)}</p>" if action_text.strip() else "") + "</div>"
                   if f.get("action") and f["status"] == "Open" and not f.get("excluded") else "")
         def field(x, h):
             text = x.get("text", "")
