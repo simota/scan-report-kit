@@ -278,6 +278,41 @@ test('detail prose preserves recorded newlines and supplies breaks only for lone
   assert.ok(h.copied[0].includes('```text\n' + text + '\n```'), 'copy uses the original evidence');
 });
 
+test('overview prose keeps recorded line breaks, as in the printable report', () => {
+  const text = 'first\r\nsecond\rthird\nfourth';
+  const h = dashboard('en', { mutate(data) {
+    data.summary = text;
+    data.findings[0].action.text = text;
+    data.perspectives = [{ name: 'Perspective', result: text, note: text }, { name: 'Blank', result: ' \n', note: '\r' }];
+    for (const key of ['limitations', 'decisions', 'next_steps', 'checked_ok']) data[key] = [text];
+  } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  const prose = [
+    h.id('summary').querySelector('p'), h.id('priority').querySelector('.action').querySelector('span.text-lines'),
+    h.id('finding-1-detail').querySelector('.action-guidance').querySelector('p'),
+    ...h.id('perspectives').querySelectorAll('p.text-lines'),
+    h.id('limitations').querySelector('li'), ...h.id('lists').querySelectorAll('li')
+  ];
+  assert.equal(prose.length, 9);
+  for (const node of prose) {
+    assert.equal(node.textContent, text, 'recorded text is unchanged');
+    assert.ok((node.getAttribute('class') || '').split(' ').includes('text-lines'), 'line breaks are displayed');
+    assert.equal(node.querySelectorAll('br').length, 1, 'only the lone CR adds a break');
+    assert.equal(node.querySelectorAll('span[hidden]').length, 2);
+  }
+  assert.equal(h.id('priority').querySelector('.action').textContent, 'Action label marker ' + text);
+  const blank = h.id('perspectives').children[1];
+  assert.deepEqual(blank.querySelectorAll('p').map(node => node.textContent), [h.data.labels.not_recorded]);
+});
+
+test('blank summary and action text are absent from the overview and details', () => {
+  const h = dashboard('en', { mutate(data) { data.summary = ' \r\n '; data.findings[0].action.text = '\n'; } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  assert.equal(h.id('summary').querySelector('p'), null);
+  assert.equal(h.id('priority').querySelector('.action').textContent, 'Action label marker');
+  assert.equal(h.id('finding-1-detail').querySelector('.action-guidance').querySelector('p'), null);
+});
+
 test('copy exports safe fences and complete details with the Clipboard API', async () => {
   const h = dashboard('en', { clipboard: 'success' });
   const button = copyButton(h);
