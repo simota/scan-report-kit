@@ -122,8 +122,11 @@ def _ignored(name):
 
 def _path_problem(rel):
     """MANIFEST paths must name one portable, relative package file."""
+    # Reading MANIFEST uses str.splitlines(), which also breaks lines at
+    # U+0085, U+2028 and U+2029: a name holding one could not be read back.
     if (not rel or "\\" in rel or PurePosixPath(rel).is_absolute()
-            or PureWindowsPath(rel).drive or any(ord(c) < 32 or ord(c) == 127 for c in rel)
+            or PureWindowsPath(rel).drive
+            or any(ord(c) < 32 or ord(c) == 127 or c in "\x85\u2028\u2029" for c in rel)
             or any(part in ("", ".", "..") for part in rel.split("/"))):
         return "invalid relative path"
     if rel == MANIFEST or any(_ignored(part) for part in rel.split("/")):
