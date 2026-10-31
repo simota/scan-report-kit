@@ -217,6 +217,30 @@ class ReportSecurityTests(unittest.TestCase):
         self.assertIn("<h4>Fix now</h4></div>", page)
         self.assertNotIn("<p class='prose'>", page)
 
+    def test_blank_optional_strings_count_as_absent_in_both_outputs(self):
+        blank = " \r\n\x85 "
+        data = document(finding(confidence=blank, verdict=blank, category=blank, location=blank,
+                                references=[{"type": blank, "title": blank, "url": "https://example.test/a"}]))
+        data["meta"].update(assessor=blank, scope=blank, method=blank, commit="abc123")
+        data["report"] = {"title": blank, "kind": "Security"}
+        page = report.render_document(data, "en")
+        self.assertNotIn("<strong>Assessor</strong>", page)
+        self.assertIn("<strong>Commit</strong> abc123", page)
+        self.assertIn("<h1>Assessment Report</h1>", page)
+        self.assertIn("<p class=\"kicker\">Security</p>", page)
+        self.assertIn("<span class='rt'>source</span> <a href='https://example.test/a'>https://example.test/a</a>",
+                      page)
+        payload = self.payload(report.render_dashboard(data, "en"))
+        self.assertEqual(payload["meta"], {"project": "Example", "date": "2026-10-12", "commit": "abc123"})
+        self.assertEqual(payload["labels"]["title"], "Assessment Report")
+        f = payload["findings"][0]
+        for key in ("confidence", "verdict", "category", "location"):
+            self.assertNotIn(key, f)
+        self.assertEqual(f["references"], [{"url": "https://example.test/a"}])
+        # U+FEFF is text to str.strip(), so it is kept like any other value.
+        data["findings"][0]["category"] = "﻿"
+        self.assertEqual(self.payload(report.render_dashboard(data, "en"))["findings"][0]["category"], "﻿")
+
     def test_blank_document_summary_still_uses_the_missing_summary_label(self):
         for value in ("", " \r\n\t "):
             with self.subTest(summary=repr(value)):

@@ -646,6 +646,36 @@ test('blank table leads and empty groups are absent from the detail and the copy
   assert.ok(!text.includes('Unrecorded'), text);
 });
 
+test('blank field text reads as not recorded and is left out of the copy', async () => {
+  const h = dashboard('en', { clipboard: 'success', mutate(data) {
+    data.findings[0].fields = [
+      { label: 'Blank_field', text: ' \r\n\x85 ' }, { label: 'Kept_field', text: 'kept_token' }
+    ];
+  } });
+  h.id('finding-1').querySelector('.finding-toggle').click();
+  const detail = h.id('finding-1-detail');
+  const dd = detail.querySelector('dl').children;
+  const at = dd.findIndex(node => node.textContent === 'Blank_field');
+  assert.equal(dd[at + 1].textContent, h.data.labels.not_recorded);
+  detail.querySelector('.copy-finding').click();
+  await settle();
+  assert.ok(!h.copied[0].includes('Blank_field'), h.copied[0]);
+  assert.ok(h.copied[0].includes('### Kept\\_field\n```text\nkept_token\n```'), h.copied[0]);
+});
+
+test('an action label without text still reaches the copy', async () => {
+  for (const text of [undefined, '', ' \n ']) {
+    const h = dashboard('en', { clipboard: 'success', mutate(data) {
+      if (text === undefined) delete data.findings[0].action.text; else data.findings[0].action.text = text;
+    } });
+    copyButton(h).click();
+    await settle();
+    const copied = h.copied[0];
+    assert.ok(copied.includes('\n### Action label marker\n'), JSON.stringify(text) + '\n' + copied);
+    assert.ok(!/### Action label marker\n`+text/.test(copied), copied);
+  }
+});
+
 test('a single group reads as part of the detail list, without tabs', () => {
   const h = dashboard('en', { mutate(data) {
     data.findings[0].fields = [{ label: 'Only', text: 'single_group_token', group: 'Overview' }];

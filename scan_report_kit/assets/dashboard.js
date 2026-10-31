@@ -223,11 +223,11 @@
     });
     return groups.filter(function (g) { return g.items.length; });
   }
-  // Blank text leads no table, as in the printable report.
+  // Blank text leads no table and fills no section, as in the printable report.
   function tableLead(x) { return blank(x.text) ? '' : x.text; }
   // A field's text, then its table one row per line, cells joined by " | ".
   function fieldPlain(x) {
-    var lead = x.rows ? tableLead(x) : x.text, lines = lead ? [lead] : [];
+    var lead = tableLead(x), lines = lead ? [lead] : [];
     if (x.rows) [x.columns].concat(x.rows).forEach(function (row) {
       if (row) lines.push(row.map(oneLine).join(' | '));
     });
@@ -239,7 +239,11 @@
     function block(label, value, level) { if (value) { var fc = fence(value); out.push('', (level || '###') + ' ' + markdownInline(label), fc + 'text', value, fc); } }
     p(L.severity, f.severity); p(L.status, statusText(f)); p(L.confidence, f.confidence); p(L.verdict, f.verdict);
     p(L.category, f.category); p(L.location, f.location);
-    if (f.action && f.status === 'Open' && !f.excluded) block(f.action.label, f.action.text);
+    // The label is the next action itself, so it is kept without any text.
+    if (f.action && f.status === 'Open' && !f.excluded) {
+      if (blank(f.action.text)) out.push('', '### ' + markdownInline(f.action.label));
+      else block(f.action.label, f.action.text);
+    }
     fieldGroups(f.fields || []).forEach(function (g) {
       // Empty sections are left out, so a group with none left gets no heading.
       var items = g.items.filter(function (x) { return fieldPlain(x); });
@@ -329,7 +333,7 @@
       (into || dl).appendChild(dd);
     }
     function fieldValue(x) {
-      if (!x.rows) return x.text || L.not_recorded;
+      if (!x.rows) return blank(x.text) ? L.not_recorded : x.text;
       var box = el('div');
       if (tableLead(x)) { var lead = el('p', { 'class': 'field-lead' }); proseInto(lead, x.text); box.appendChild(lead); }
       box.appendChild(fieldTable(x));

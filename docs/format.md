@@ -13,9 +13,12 @@ evidence when it is read. CR and CRLF line endings in text and attributes
 are preserved through HTML parsing. Prose — the summary, list items,
 perspective results and notes, action text, field text and table cells —
 displays LF, CRLF and standalone CR as one line break each without changing
-the recorded text, in the dashboard and the printable report alike. A blank
-summary, action text, perspective result or note counts as absent. A nonblank summary also retains its leading and trailing
-whitespace. Required strings
+the recorded text, in the dashboard and the printable report alike. Blank
+optional text counts as absent in both outputs: the summary, action text,
+perspective results and notes, field text, the optional `meta`, `report` and
+finding strings, and reference types and titles. Blank means only whitespace
+as Python's `str.strip()` defines it. A nonblank summary also retains its
+leading and trailing whitespace. Required strings
 must contain a non-whitespace character. Unknown keys are ignored and are not
 copied into the dashboard payload, so extensions cannot change built-in labels
 or rendering behavior.
@@ -99,7 +102,8 @@ exclusion label.
 
 The dashboard's copy-for-LLM export escapes Markdown and HTML-like syntax in
 inline recorded text, including labels, IDs, titles and metadata. Line breaks
-in these inline values are flattened to spaces. Body sections and source
+in these inline values are flattened to spaces. An open finding's action label
+is kept as a heading even when its text is blank. Body sections and source
 excerpts stay in fenced code blocks so their contents cannot become Markdown
 structure. Reference links preserve query separators and quote URL characters
 that would otherwise close the Markdown link.
