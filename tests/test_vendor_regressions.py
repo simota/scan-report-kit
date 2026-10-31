@@ -328,6 +328,22 @@ class VendorRegressionTests(unittest.TestCase):
                 listed.write_text(content, encoding="utf-8")
                 self.assertTrue(any("MANIFEST" in p for p in vendor.check(target)))
 
+    def test_file_names_that_would_split_a_manifest_line_are_refused_before_copying(self):
+        self.old_copy()
+        for char in ("\x1c", "\x85", "\u2028", "\u2029"):
+            with self.subTest(char=repr(char)):
+                odd = self.source / f"a{char}b.txt"
+                odd.write_text("x", encoding="utf-8")
+                try:
+                    with self.assertRaises(ValueError) as caught:
+                        vendor.vendor(self.dest)
+                    # The source file itself is named, before any MANIFEST is written.
+                    self.assertIn(f"{odd.name!r}: invalid relative path", str(caught.exception))
+                    self.assertNotIn("MANIFEST", str(caught.exception))
+                    self.assert_old_copy(self.dest / vendor.NAME)
+                finally:
+                    odd.unlink()
+
     def test_check_never_opens_linked_package_files(self):
         target = vendor.vendor(self.dest)
         regular = target / "__init__.py"

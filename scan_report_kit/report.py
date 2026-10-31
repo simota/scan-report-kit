@@ -322,13 +322,18 @@ def validate(data):
     return data
 
 
+def given(text):
+    """Recorded optional text that is not blank: blank text counts as absent."""
+    return bool(str(text or "").strip())
+
+
 def labels_for(data, lang):
     """Built-in labels for lang, then the report's own kind/title strings, then its overrides."""
     if not isinstance(lang, str) or lang not in LABELS:
         raise FormatError(f"lang: expected one of {list(LABELS)}")
     L = dict(LABELS[lang])
     names = data.get("report", {})
-    L.update({k: names[k] for k in REPORT_KEYS if names.get(k)})
+    L.update({k: names[k] for k in REPORT_KEYS if given(names.get(k))})
     L.update({k: v for k, v in data.get("labels", {}).items() if k in LABEL_KEYS})
     return L
 
@@ -417,8 +422,9 @@ def field_table_html(field):
 def refs_html(refs, L):
     if not refs:
         return ""
-    items = "".join(f"<li><span class='rt'>{esc(r.get('type') or L['source'])}</span> "
-                    f"<a href='{esc(r['url'])}'>{esc(r.get('title') or r['url'])}</a></li>" for r in refs)
+    items = "".join(f"<li><span class='rt'>{esc(r['type'] if given(r.get('type')) else L['source'])}</span> "
+                    f"<a href='{esc(r['url'])}'>{esc(r['title'] if given(r.get('title')) else r['url'])}</a></li>"
+                    for r in refs)
     return f"<ul class='refs'>{items}</ul>"
 
 
@@ -432,17 +438,17 @@ def render_document(data, lang):
     excluded = [f for f in data["findings"] if f.get("excluded")]
 
     def value(text):
-        return esc(text) if str(text or "").strip() else esc(L["none"])
+        return esc(text) if given(text) else esc(L["none"])
 
     def prose_span(text):
-        return f"<span class='prose'>{prose_html(text)}</span>" if str(text or "").strip() else ""
+        return f"<span class='prose'>{prose_html(text)}</span>" if given(text) else ""
 
     def bullets(items, empty):
         return ("<ul>" + "".join(f"<li class='prose'>{prose_html(x)}</li>" for x in items) + "</ul>"
                 if items else f"<p class='small'>{esc(L[empty])}</p>")
 
     meta = "".join(f"<p class='meta-line'><strong>{esc(L[k])}</strong> {esc(m[k])}</p>"
-                   for k in META_KEYS[1:] if m.get(k))
+                   for k in META_KEYS[1:] if given(m.get(k)))
     sev_head = "".join(f"<th scope='col' class='{s}'>{s}</th>" for s in SEVERITIES)
     def metric_cell(severity, statuses):
         n = sum(c["by"][(severity, st)] for st in statuses)
@@ -500,11 +506,11 @@ def render_document(data, lang):
                         + "</td></tr>" for k in ("severity", "status", "confidence", "verdict", "category", "location"))
         action_text = f.get("action", {}).get("text", "")
         action = (f"<div class='finding-field'><h4>{esc(f['action']['label'])}</h4>"
-                  + (f"<p class='prose'>{prose_html(action_text)}</p>" if action_text.strip() else "") + "</div>"
+                  + (f"<p class='prose'>{prose_html(action_text)}</p>" if given(action_text) else "") + "</div>"
                   if f.get("action") and f["status"] == "Open" and not f.get("excluded") else "")
         def field(x, h):
             text = x.get("text", "")
-            body = (f"<p class='prose'>{prose_html(text)}</p>" if text.strip() else
+            body = (f"<p class='prose'>{prose_html(text)}</p>" if given(text) else
                     "" if "rows" in x else f"<p class='empty-value'>{esc(L['not_recorded'])}</p>")
             return f"<div class='finding-field'><{h}>{esc(x['label'])}</{h}>{body}{field_table_html(x)}</div>"
 
@@ -534,7 +540,7 @@ def render_document(data, lang):
 <header class="report-header"><p class="kicker">{esc(L['kind'])}</p><h1>{esc(L['title'])}</h1>
 <p class="project">{esc(m['project'])}</p>{meta}</header>
 <main>
-<p class="lead prose">{prose_html(summary if summary.strip() else L['no_summary'])}</p>
+<p class="lead prose">{prose_html(summary if given(summary) else L['no_summary'])}</p>
 <section class="summary-section" id="summary"><h2>{esc(L['summary'])}</h2><p>{esc(headline(data, L))}</p>{metrics}
 <h3 class="limit-heading">{esc(L['limitations'])}</h3><div class="limits">{bullets(data.get('limitations', []), 'limitations_empty')}</div></section>
 <section id="priority-queue"><h2>{esc(L['priority'])}</h2><p class="section-note">{esc(L['priority_note'])}</p>{queue}</section>
@@ -594,15 +600,23 @@ __JS__
 
 
 def _finding_payload(finding, index):
-    """Copy only the validated contract fields; extensions never enter the page."""
-    payload = {k: finding[k] for k in FINDING_KEYS if k in finding}
+    """Copy only the validated contract fields; extensions never enter the page.
+
+    Blank optional strings are left out, so the dashboard treats them as absent
+    like the printable report does.
+    """
+    payload = {k: finding[k] for k in FINDING_KEYS if k in finding
+               and (not isinstance(finding[k], str) or given(finding[k]))}
     payload["anchor"] = anchor(index)
     for key, keys in (("action", ("label", "text")), ("snippet", ("start", "hit", "lines"))):
         if key in finding:
             payload[key] = {k: finding[key][k] for k in keys if k in finding[key]}
-    for key, keys in (("fields", ("label", "text", "group", "columns", "rows")), ("references", ("type", "title", "url"))):
-        if key in finding:
-            payload[key] = [{k: item[k] for k in keys if k in item} for item in finding[key]]
+    if "fields" in finding:
+        payload["fields"] = [{k: item[k] for k in ("label", "text", "group", "columns", "rows") if k in item}
+                             for item in finding["fields"]]
+    if "references" in finding:
+        payload["references"] = [{k: item[k] for k in ("type", "title", "url") if k == "url" or given(item.get(k))}
+                                 for item in finding["references"]]
     return payload
 
 
@@ -611,7 +625,7 @@ def render_dashboard(data, lang):
     validate(data)
     L = labels_for(data, lang)
     payload = {
-        "meta": {k: data["meta"][k] for k in META_KEYS if data["meta"].get(k)},
+        "meta": {k: data["meta"][k] for k in META_KEYS if given(data["meta"].get(k))},
         "labels": L, "headline": headline(data, L), "summary": data.get("summary", ""),
         "findings": [_finding_payload(f, i) for i, f in enumerate(data["findings"])],
         "order": {"severity": SEVERITIES, "status": STATUSES},
